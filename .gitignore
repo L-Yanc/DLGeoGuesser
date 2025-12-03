@@ -1,2 +1,5 @@
 private/
 **/.DS_Store
+*.zip
+/data/raw
+/data/processed
