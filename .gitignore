@@ -1,5 +1,11 @@
 private/
-**/.DS_Store
+
+*.pt
 *.zip
-/data/raw
-/data/processed
+**/.DS_Store
+
+**/data/raw
+**/data/processed
+
+**/__pycache__
+
