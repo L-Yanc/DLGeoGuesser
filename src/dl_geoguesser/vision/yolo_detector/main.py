@@ -22,6 +22,7 @@ def main():
     parser_train.add_argument("--data", type=str, default="configs/vistas_yolo.yaml", help="Path to the dataset YAML file.")
     parser_train.add_argument("--epochs", type=int, default=100, help="Number of training epochs.")
     parser_train.add_argument("--batch", type=int, default=16, help="Batch size for training.")
+    parser_train.add_argument("--workers", type=int, default=8, help="Number of worker threads for data loading.")
     parser_train.add_argument("--resume", action="store_true", help="Resume training from the last checkpoint.")
     parser_train.add_argument("--name", type=str, default="vistas_yolo_run", help="Name of the training run.")
 
@@ -50,6 +51,7 @@ def main():
             data_yaml=args.data,
             epochs=args.epochs,
             batch_size=args.batch,
+            workers=args.workers,
             resume=args.resume,
             project='runs/detect',
             device=0,
