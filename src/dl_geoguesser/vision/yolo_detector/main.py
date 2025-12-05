@@ -23,9 +23,10 @@ def main():
     parser_train.add_argument("--epochs", type=int, default=100, help="Number of training epochs.")
     parser_train.add_argument("--batch", type=int, default=16, help="Batch size for training.")
     parser_train.add_argument("--workers", type=int, default=8, help="Number of worker threads for data loading.")
-    parser_train.add_argument("--cache", action="store_true", help="Cache dataset in RAM for faster training.")
+    parser_train.add_argument("--cache", type=str, default=None, choices=['ram', 'disk'], help="Cache dataset to RAM or disk for faster training.")
     parser_train.add_argument("--resume", action="store_true", help="Resume training from the last checkpoint.")
     parser_train.add_argument("--name", type=str, default="vistas_yolo_run", help="Name of the training run.")
+    parser_train.add_argument("--device", type=str, default="auto", help="Device to run training on, e.g., 'cpu', '0', 'mps'.")
 
     # --- Validate Command ---
     parser_validate = subparsers.add_parser("validate", help="Validate a trained YOLOv8 model.")
@@ -56,8 +57,8 @@ def main():
             cache=args.cache,
             resume=args.resume,
             project='runs/detect',
-            device=0,
-            name=args.name
+            name=args.name,
+            device=args.device
         )
         # After training, show where to find results
         detector.visualize_performance(project_dir=f'runs/detect/{args.name}')
