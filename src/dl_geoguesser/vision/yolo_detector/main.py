@@ -52,6 +52,7 @@ def main():
             batch_size=args.batch,
             resume=args.resume,
             project='runs/detect',
+            device=0,
             name=args.name
         )
         # After training, show where to find results
