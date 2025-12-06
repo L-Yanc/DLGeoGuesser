@@ -1,4 +1,5 @@
 private/
+runs/
 
 *.pt
 *.zip
@@ -8,4 +9,10 @@ private/
 **/data/processed
 
 **/__pycache__
+*.egg-info
+
+venv/
+.venv/
+env/
+.env/
 

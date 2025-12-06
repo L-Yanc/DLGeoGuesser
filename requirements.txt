@@ -1,0 +1,10 @@
+ultralytics
+torch
+torchvision
+torchaudio
+
+opencv-python
+numpy
+pandas
+
+tqdm
