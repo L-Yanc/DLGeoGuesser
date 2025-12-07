@@ -3,10 +3,8 @@ import pprint
 import sys
 from pathlib import Path
 
-# To allow running this script directly from the project root
-sys.path.append(str(Path(__file__).parent.parent.parent.parent))
-
 from dl_geoguesser.vision.yolo_detector.model import YOLOv8Detector
+
 
 def main():
     """

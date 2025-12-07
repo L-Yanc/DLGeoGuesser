@@ -8,7 +8,7 @@ echo "--- Starting Data Download and Organisation ---"
 # Define paths relative to the project root
 DATA_DIR="data"
 RAW_DIR="${DATA_DIR}/raw"
-URL_FILE="${DATA_DIR}/data_urls.txt"
+URL_FILE="./yolo_data_urls.txt"
 
 # Ensure the raw directory exists
 mkdir -p "${RAW_DIR}"

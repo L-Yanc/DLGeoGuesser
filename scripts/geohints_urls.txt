@@ -1,0 +1,15 @@
+https://geohints.com/meta/architecture
+https://geohints.com/meta/utilityPoles
+https://geohints.com/meta/postBoxes
+https://geohints.com/meta/sceneries
+https://geohints.com/meta/signs/animalWarning
+https://geohints.com/meta/signs/backOfSigns
+https://geohints.com/meta/signs/busStop
+https://geohints.com/meta/signs/chevrons
+https://geohints.com/meta/signs/directions
+https://geohints.com/meta/signs/pedestrian
+https://geohints.com/meta/signs/railwayCrossing
+https://geohints.com/meta/signs/roadNumbering
+https://geohints.com/meta/signs/signPosts
+https://geohints.com/meta/signs/stop
+https://geohints.com/meta/trafficLights

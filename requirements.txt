@@ -8,3 +8,14 @@ numpy
 pandas
 
 tqdm
+
+easyocr
+paddlepaddle
+paddleocr
+langdetect
+
+beautifulsoup4
+requests
+
+svglib
+reportlab
