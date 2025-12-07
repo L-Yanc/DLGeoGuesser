@@ -1,0 +1,29 @@
+{
+  "step": 812,
+  "val_bpb": 2.185757387042284,
+  "model_config": {
+    "sequence_len": 2048,
+    "vocab_size": 65536,
+    "n_layer": 12,
+    "n_head": 6,
+    "n_kv_head": 6,
+    "n_embd": 768
+  },
+  "user_config": {
+    "run": "dummy",
+    "device_type": "",
+    "dtype": "bfloat16",
+    "num_iterations": -1,
+    "max_seq_len": 2048,
+    "device_batch_size": 4,
+    "unembedding_lr": 0.004,
+    "embedding_lr": 0.2,
+    "matrix_lr": 0.02,
+    "init_lr_frac": 1.0,
+    "weight_decay": 0.0,
+    "eval_every": 150,
+    "eval_tokens": 10485760,
+    "total_batch_size": 524288,
+    "dry_run": 0
+  }
+}

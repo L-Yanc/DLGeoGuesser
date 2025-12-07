@@ -2,6 +2,7 @@ private/
 runs/
 
 *.pt
+!models/**/*.pt
 *.zip
 **/.DS_Store
 

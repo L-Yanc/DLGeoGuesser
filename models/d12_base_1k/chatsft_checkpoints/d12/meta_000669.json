@@ -1,0 +1,14 @@
+{
+  "step": 669,
+  "val_loss": 6.409963607788086,
+  "mmlu_acc": 0.248046875,
+  "arc_easy_acc": 0.2451171875,
+  "model_config": {
+    "sequence_len": 2048,
+    "vocab_size": 65536,
+    "n_layer": 12,
+    "n_head": 6,
+    "n_kv_head": 6,
+    "n_embd": 768
+  }
+}

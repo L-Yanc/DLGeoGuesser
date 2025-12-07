@@ -2,6 +2,7 @@ ultralytics
 torch
 torchvision
 torchaudio
+tiktoken
 
 opencv-python
 numpy
