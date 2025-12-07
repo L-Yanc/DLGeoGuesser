@@ -18,7 +18,7 @@ from dl_geoguesser.language.nanochat_model import NanoChatModel
 
 # Map stage names to checkpoint paths
 STAGE_PATHS = {
-    "base": "models/d12_base_1k",
+    "base": "models/d12_base_1k/base_checkpoints",
     "mid": "models/d12_base_1k/mid_checkpoints/d12",
     "sft": "models/d12_base_1k/chatsft_checkpoints/d12",
 }
