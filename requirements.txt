@@ -20,3 +20,8 @@ requests
 
 svglib
 reportlab
+
+scikit-learn
+pillow
+pyyaml
+transformers

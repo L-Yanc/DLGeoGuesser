@@ -1,0 +1,38 @@
+# === DATA SETTINGS ===
+data:
+  root: "../processed/geohints_processed"
+  train_csv: "../processed/geohints_processed/train.csv"
+  val_csv: "../processed/geohints_processed/val.csv"
+  test_csv: "../processed/geohints_processed/test.csv"
+  image_column: "filename"
+  country_column: "country"
+  content_column: "content"
+  image_size: 224
+  num_workers: 4
+
+# === MODEL SETTINGS ===
+model:
+  backbone: "clip"         # options: clip, clip_large, dinov2
+  pretrained_name: "openai/clip-vit-base-patch32"
+  embed_dim: 512           # CLIP base has 512-dim embeddings
+  freeze_backbone: true    # we freeze for 10-min training limit
+  hidden_dim: 512          # width of classifier head MLP
+  dropout: 0.1
+
+# === TRAINING SETTINGS ===
+training:
+  batch_size: 32
+  num_epochs: 5
+  lr_head: 1e-3
+  lr_backbone: 1e-5
+  weight_decay: 1e-4
+  seed: 42
+  device: "cuda"
+
+# === EVALUATION SETTINGS ===
+eval:
+  k: 5                          # for kNN baseline
+  save_dir: "models/clip_landscape"
+  top_k: 5                      # for inference
+  generate_confusion_matrix: true
+  generate_gradcam: false       # turn on manually when needed
