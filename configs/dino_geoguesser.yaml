@@ -1,0 +1,35 @@
+# === DATA SETTINGS ===
+data:
+  root: "data/processed/geohints_processed"
+  metadata_csv: "data/processed/geohints_processed/metadata.csv"
+  image_column: "filename"
+  country_column: "country"
+  image_size: 224
+  num_workers: 4
+  val_split_size: 0.15
+  test_split_size: 0.15
+
+# === MODEL SETTINGS ===
+model:
+  backbone: "dino"
+  pretrained_name: "facebook/dinov2-base"
+  embed_dim: 768           # DINOv2 base has 768-dim embeddings
+  freeze_backbone: true
+  hidden_dim: 512
+  dropout: 0.1
+
+# === TRAINING SETTINGS ===
+training:
+  batch_size: 32
+  num_epochs: 5
+  lr_head: 1e-3
+  lr_backbone: 1e-5
+  weight_decay: 1e-4
+  seed: 42
+  device: "mps" # Changed from cuda for local testing, user can change back
+
+# === EVALUATION SETTINGS ===
+eval:
+  save_dir: "runs/dino"
+  top_k: 5
+  generate_confusion_matrix: true
