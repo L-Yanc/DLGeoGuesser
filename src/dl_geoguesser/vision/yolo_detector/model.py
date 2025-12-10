@@ -23,7 +23,7 @@ class YOLOv8Detector:
         To train from scratch, pass a model configuration file (e.g., 'yolov8n.yaml').
         To fine-tune, pass a pre-trained model file (e.g., 'yolov8n.pt').
         To load a custom-trained model for inference, pass the path to your
-        trained weights file (e.g., 'runs/detect/train1/weights/best.pt').
+        trained weights file (e.g., 'runs/yolo/train1/weights/best.pt').
 
         Args:
             model_path (str): The path to the model file or configuration yaml.
@@ -42,7 +42,7 @@ class YOLOv8Detector:
         library will automatically find the last checkpoint.
 
         All results, including model weights, metrics, and graphs, are saved
-        to a unique directory in `runs/detect/`.
+        to a unique directory in `runs/yolo/`.
 
         Args:
             data_yaml (str): Path to the dataset .yaml file.

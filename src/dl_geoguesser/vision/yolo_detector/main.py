@@ -28,13 +28,13 @@ def main():
 
     # --- Validate Command ---
     parser_validate = subparsers.add_parser("validate", help="Validate a trained YOLOv8 model.")
-    parser_validate.add_argument("--weights", type=str, required=True, help="Path to the trained model weights (e.g., runs/detect/exp/weights/best.pt).")
+    parser_validate.add_argument("--weights", type=str, required=True, help="Path to the trained model weights (e.g., runs/yolo/exp/weights/best.pt).")
     parser_validate.add_argument("--data", type=str, default="configs/vistas_yolo.yaml", help="Path to the dataset YAML file.")
     parser_validate.add_argument("--split", type=str, default="test", choices=['val', 'test'], help="Dataset split to use for validation.")
 
     # --- Visualize Command ---
     parser_visualize = subparsers.add_parser("visualize", help="Show paths to performance metrics of a training run.")
-    parser_visualize.add_argument("--run", type=str, default=None, help="Specific run directory to visualize (e.g., runs/detect/vistas_yolo_run). If not provided, the latest run will be used.")
+    parser_visualize.add_argument("--run", type=str, default=None, help="Specific run directory to visualize (e.g., runs/yolo/vistas_yolo_run). If not provided, the latest run will be used.")
 
     # --- Predict Command ---
     parser_predict = subparsers.add_parser("predict", help="Run inference with a trained YOLOv8 model.")
@@ -59,7 +59,7 @@ def main():
             device=args.device
         )
         # After training, show where to find results
-        detector.visualize_performance(project_dir=f'runs/detect/{args.name}')
+        detector.visualize_performance(project_dir=f'runs/yolo/{args.name}')
 
     elif args.command == "validate":
         # Initialize with trained weights
