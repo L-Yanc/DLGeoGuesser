@@ -8,7 +8,7 @@ import numpy as np
 from dl_geoguesser.vision.yolo_detector.model import YOLOv8Detector
 
 # Define root directory relative to the script's location
-ROOT_DIR = Path(__file__).parent.parent.resolve()
+ROOT_DIR = Path(__file__).parent.parent.parent.resolve()
 
 
 def find_latest_run_weights(project_dir: Path) -> str | None:

@@ -7,7 +7,7 @@ from PIL import Image
 from tqdm import tqdm
 
 # --- CONFIGURATION ---
-ROOT_DIR = Path(__file__).parent.parent.resolve()
+ROOT_DIR = Path(__file__).parent.parent.parent.resolve()
 RAW_DATA_DIR = ROOT_DIR / 'data' / 'raw' / 'geohints'
 
 # --- CORE FUNCTIONS ---

@@ -10,7 +10,7 @@ from tqdm import tqdm
 # --- CONFIGURATION ---
 
 # The script is in scripts/, so the project root is one level up.
-ROOT_DIR = Path(__file__).parent.parent.resolve()
+ROOT_DIR = Path(__file__).parent.parent.parent.resolve()
 RAW_DATA_DIR = ROOT_DIR / 'data' / 'raw' / 'vistas2'
 PROCESSED_DATA_DIR_BASE = ROOT_DIR / 'data' / 'processed'
 CLASS_TRANSLATION_PATH = ROOT_DIR / 'data' / 'raw' / 'class_translation.json'

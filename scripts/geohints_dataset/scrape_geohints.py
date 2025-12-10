@@ -10,7 +10,7 @@ from bs4 import BeautifulSoup
 from tqdm import tqdm
 
 # --- CONFIGURATION ---
-ROOT_DIR = Path(__file__).parent.parent.resolve()
+ROOT_DIR = Path(__file__).parent.parent.parent.resolve()
 URL_FILE = ROOT_DIR / 'scripts' / 'geohints_urls.txt'
 RAW_OUTPUT_DIR = ROOT_DIR / 'data' / 'raw' / 'geohints'
 

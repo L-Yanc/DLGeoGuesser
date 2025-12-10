@@ -1,14 +1,20 @@
 #!/bin/zsh
 set -e
 
-# Run from the project root directory.
+# Get the directory where the script is located
+SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &> /dev/null && pwd)
+# Set project root, which is two levels up from the script's directory
+PROJECT_ROOT=$(dirname $(dirname "${SCRIPT_DIR}"))
+
+# Change to the project root directory to ensure relative paths work as expected
+cd "${PROJECT_ROOT}"
 
 echo "--- Starting Data Download and Organisation ---"
 
 # Define paths relative to the project root
 DATA_DIR="data"
 RAW_DIR="${DATA_DIR}/raw"
-URL_FILE="./yolo_data_urls.txt"
+URL_FILE="${SCRIPT_DIR}/yolo_data_urls.txt"
 
 # Ensure the raw directory exists
 mkdir -p "${RAW_DIR}"

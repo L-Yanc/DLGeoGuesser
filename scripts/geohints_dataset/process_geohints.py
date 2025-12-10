@@ -6,7 +6,7 @@ from pathlib import Path
 from tqdm import tqdm
 
 # --- CONFIGURATION ---
-ROOT_DIR = Path(__file__).parent.parent.resolve()
+ROOT_DIR = Path(__file__).parent.parent.parent.resolve()
 RAW_DATA_DIR = ROOT_DIR / 'data' / 'raw' / 'geohints'
 PROCESSED_DIR = ROOT_DIR / 'data' / 'processed' / 'geohints_processed'
 METADATA_FILE = PROCESSED_DIR / 'geohints_metadata.csv'

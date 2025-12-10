@@ -9,7 +9,7 @@ import argparse
 # --- CONFIGURATION ---
 
 # The script is in scripts/, so the project root is one level up.
-ROOT_DIR = Path(__file__).parent.parent.resolve()
+ROOT_DIR = Path(__file__).parent.parent.parent.resolve()
 PROCESSED_DATA_DIR = ROOT_DIR / 'data' / 'processed' / 'vistas_yolo'
 CLASS_TRANSLATION_PATH = ROOT_DIR / 'data' / 'raw' / 'class_translation.json'
 

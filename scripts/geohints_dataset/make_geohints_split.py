@@ -2,7 +2,7 @@ import pathlib
 import pandas as pd
 from sklearn.model_selection import train_test_split
 
-ROOT = pathlib.Path(__file__).parent.parent.resolve()
+ROOT = pathlib.Path(__file__).parent.parent.parent.resolve()
 DATA_DIR = ROOT / "data" / "processed" / "geohints_processed"
 METADATA_PATH = DATA_DIR / "metadata.csv"
 
