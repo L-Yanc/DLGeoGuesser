@@ -65,6 +65,20 @@ python -m src.dl_geoguesser.vision.dino_geoguesser.main train \
   --device mps
 ```
 
+## Class Imbalance
+
+The dataset has a significant class imbalance (some countries have many more images than others). To combat this, the training pipeline includes two features:
+
+1.  **Stratified Splitting**: By default, the dataset is split into train, validation, and test sets in a stratified manner. This can be disabled for ablation studies.
+2.  **Weighted Sampling**: You can enable weighted sampling for the training set to give samples from rarer classes a higher probability of being selected in each batch. This helps the model see a more balanced distribution of classes during training.
+
+To control these features, set the following flags in `configs/dino_geoguesser.yaml`:
+```yaml
+training:
+  use_weighted_sampling: true
+  use_stratification: true
+```
+
 ## Detailed Evaluation
 
 To diagnose model performance and investigate issues like class imbalance, you can use the `evaluate` command. This mode will run your trained model on a dataset split (`val` or `test`) and provide detailed, per-class metrics.
