@@ -9,9 +9,15 @@ import torch.nn as nn
 import yaml
 from torch.utils.data import DataLoader
 from tqdm import tqdm
+import numpy as np
+from sklearn.metrics import classification_report, confusion_matrix
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 from .data import create_dataloaders, load_config
 from .model import DinoGeoguesserModel, build_dino_geoguesser_model, get_device
+
+# ... (rest of the training code from before, unchanged) ...
 
 @dataclass
 class TrainingState:
@@ -80,6 +86,7 @@ def evaluate(model: nn.Module, loader: DataLoader, dev: torch.device, use_embedd
     return {"loss": total_loss / steps, "acc": total_acc / steps}
 
 def precompute_embeddings(model: DinoGeoguesserModel, cfg: Dict, device: torch.device, save_path: Path):
+    # ... (precompute_embeddings function remains the same)
     print(f"Pre-computing embeddings and saving to {save_path}...")
     model.eval()
     train_loader, val_loader, test_loader, country2id = create_dataloaders(cfg, augmentations='none')
@@ -101,12 +108,14 @@ def precompute_embeddings(model: DinoGeoguesserModel, cfg: Dict, device: torch.d
     print("Pre-computation complete.")
 
 def save_checkpoint(model, optimizer, epoch, best_val_acc, cfg, country2id, out_dir, name="best.pt"):
+    # ... (save_checkpoint function remains the same)
     out_dir.mkdir(parents=True, exist_ok=True)
     payload = {"epoch": epoch, "best_val_acc": best_val_acc, "state_dict": model.state_dict(), "optimizer_state_dict": optimizer.state_dict(), "config": cfg, "country2id": country2id}
     torch.save(payload, out_dir / name)
     print(f"[Training] Saved checkpoint to {out_dir / name}")
 
 def train(cfg_path: str, name: str, device_str: Optional[str], weights: Optional[str], resume: bool, precompute: bool, augmentations: str):
+    # ... (train function remains the same)
     # --- Phase 1: Config, Device, and Directory Setup ---
     if precompute and ('image' in augmentations or 'both' in augmentations):
         raise ValueError("Image augmentation is not compatible with pre-computed embeddings.")
@@ -126,11 +135,9 @@ def train(cfg_path: str, name: str, device_str: Optional[str], weights: Optional
     else:
         cfg = load_config(cfg_path)
         save_dir = Path(cfg["eval"]["save_dir"]) / name
-        # For a new run, determine country mapping first
         _, _, _, country2id = create_dataloaders(cfg, augmentations='none')
         start_epoch = 0
         best_val_acc = -1.0
-        # Save config copy
         save_dir.mkdir(parents=True, exist_ok=True)
         shutil.copy(cfg_path, save_dir / "config.yaml")
         print(f"Saved configuration to {save_dir / 'config.yaml'}")
@@ -141,7 +148,7 @@ def train(cfg_path: str, name: str, device_str: Optional[str], weights: Optional
     model.to(device)
     optimizer = torch.optim.AdamW([p for p in model.parameters() if p.requires_grad], lr=float(cfg["training"]["lr_head"]))
 
-    # --- Phase 3: Load State (if applicable) ---
+    # --- Phase 3: Load State ---
     if resume:
         model.load_state_dict(ckpt['state_dict'])
         optimizer.load_state_dict(ckpt['optimizer_state_dict'])
@@ -180,9 +187,90 @@ def train(cfg_path: str, name: str, device_str: Optional[str], weights: Optional
     test_stats = evaluate(model, test_loader, device, precompute)
     print(f"[Test] loss={test_stats['loss']:.4f}, acc={test_stats['acc']:.3f}")
 
+def evaluate_detailed(weights_path: str, split: str, device_str: Optional[str]):
+    # --- Load Model and Config ---
+    if not Path(weights_path).exists(): raise FileNotFoundError(f"Weights not found: {weights_path}")
+    ckpt = torch.load(weights_path, map_location="cpu")
+    cfg = ckpt['config']
+    country2id = ckpt['country2id']
+    id2country = {v: k for k, v in country2id.items()}
+    class_names = list(id2country.values())
+    
+    device = get_device(cfg, cli_device=device_str)
+    model, _ = build_dino_geoguesser_model(cfg, num_countries=len(country2id))
+    model.load_state_dict(ckpt['state_dict'])
+    model.to(device)
+    model.eval()
+    print(f"Loaded model from {weights_path} on device {device}")
+
+    # --- Dataloaders ---
+    # Check if this was a pre-computed run
+    run_dir = Path(weights_path).parent
+    embeddings_path = run_dir / "embeddings.pt"
+    use_embeddings = embeddings_path.exists()
+    
+    if use_embeddings:
+        print("Found pre-computed embeddings for this run. Using them for evaluation.")
+        _, val_loader, test_loader, _ = create_dataloaders(cfg, precomputed_path=embeddings_path)
+    else:
+        print("No pre-computed embeddings found. Using on-the-fly image evaluation.")
+        _, val_loader, test_loader, _ = create_dataloaders(cfg)
+        
+    loader = val_loader if split == 'val' else test_loader
+    
+    # --- Inference Loop ---
+    all_preds, all_targets = [], []
+    with torch.no_grad():
+        for batch in tqdm(loader, desc=f"Evaluating on '{split}' split"):
+            targets = batch["country_id"]
+            if use_embeddings:
+                features = batch["embedding"].to(device)
+            else:
+                features = model.backbone(batch["image"].to(device))
+            
+            logits = model.head(features)["country_logits"]
+            preds = torch.argmax(logits, dim=-1)
+            
+            all_preds.extend(preds.cpu().numpy())
+            all_targets.extend(targets.cpu().numpy())
+
+    # --- Metrics and Reporting ---
+    print("\n" + "="*50)
+    print(f"Classification Report for '{split}' split")
+    print("="*50)
+    
+    # Get all class names in the correct order of their IDs to pass to sklearn
+    all_class_indices = sorted(id2country.keys())
+    all_class_names = [id2country[i] for i in all_class_indices]
+
+    report = classification_report(
+        all_targets, 
+        all_preds, 
+        labels=all_class_indices, 
+        target_names=all_class_names, 
+        zero_division=0
+    )
+    print(report)
+
+    # --- Confusion Matrix Plotting ---
+    print("Generating confusion matrix plot...")
+    cm = confusion_matrix(all_targets, all_preds, labels=all_class_indices)
+    plt.figure(figsize=(20, 20))
+    sns.heatmap(cm, annot=False, xticklabels=all_class_names, yticklabels=all_class_names, cmap='Blues')
+    plt.xlabel("Predicted")
+    plt.ylabel("True")
+    plt.title(f"Confusion Matrix - '{split}' Split")
+    
+    plot_path = run_dir / f"confusion_matrix_{split}.png"
+    plt.savefig(plot_path, dpi=300, bbox_inches='tight')
+    print(f"Confusion matrix saved to: {plot_path}")
+
+
 def main():
     parser = argparse.ArgumentParser(description="DINO Geoguesser Model CLI")
     subparsers = parser.add_subparsers(dest="command", required=True)
+    
+    # --- Train Command ---
     parser_train = subparsers.add_parser("train", help="Train the model")
     parser_train.add_argument("--config", type=str, default="configs/dino_geoguesser.yaml")
     parser_train.add_argument("--name", type=str, default="dino_run")
@@ -192,10 +280,18 @@ def main():
     parser_train.add_argument("--precompute-embeddings", action="store_true", help="Pre-compute and use embeddings for faster training.")
     parser_train.add_argument("--augmentations", type=str, default="none", choices=['none', 'image', 'embedding', 'both'])
     
+    # --- Evaluate Command ---
+    parser_eval = subparsers.add_parser("evaluate", help="Evaluate a trained model with detailed metrics.")
+    parser_eval.add_argument("--weights", type=str, required=True, help="Path to the trained model weights (.pt file).")
+    parser_eval.add_argument("--split", type=str, default="val", choices=['val', 'test'], help="Dataset split to evaluate on.")
+    parser_eval.add_argument("--device", type=str, default=None, help="Device to use for evaluation.")
+
     args = parser.parse_args()
     if args.command == "train":
         if args.resume and args.weights: raise ValueError("--resume and --weights are mutually exclusive.")
         train(args.config, args.name, args.device, args.weights, args.resume, args.precompute_embeddings, args.augmentations)
+    elif args.command == "evaluate":
+        evaluate_detailed(args.weights, args.split, args.device)
 
 if __name__ == "__main__":
     main()

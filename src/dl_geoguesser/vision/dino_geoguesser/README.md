@@ -65,6 +65,26 @@ python -m src.dl_geoguesser.vision.dino_geoguesser.main train \
   --device mps
 ```
 
+## Detailed Evaluation
+
+To diagnose model performance and investigate issues like class imbalance, you can use the `evaluate` command. This mode will run your trained model on a dataset split (`val` or `test`) and provide detailed, per-class metrics.
+
+This will:
+1.  Print a **Classification Report** to the console, showing precision, recall, and F1-score for every country.
+2.  Generate and save a **Confusion Matrix** heatmap to the model's run directory (e.g., `runs/dino/your_run_name/confusion_matrix_val.png`).
+
+**Note:** This feature requires `matplotlib` and `seaborn`. If you don't have them installed, run:
+`pip install matplotlib seaborn`
+
+### Command
+
+```bash
+python -m src.dl_geoguesser.vision.dino_geoguesser.main evaluate \
+  --weights "runs/dino/your_run_name/best.pt" \
+  --split val \
+  --device mps
+```
+
 ## Usage (as a Library Component)
 
 The `DinoGeoguesser` class is designed to be a component in a larger prediction pipeline. You can specify the device for inference when you instantiate the class.
