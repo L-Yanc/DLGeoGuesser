@@ -7,7 +7,7 @@ from typing import Dict, List, Optional, Tuple
 import torch
 import torch.nn as nn
 from PIL import Image
-from transformers import AutoModel
+from transformers import AutoImageProcessor, AutoModel
 
 from .data import get_dino_transforms
 
@@ -73,7 +73,7 @@ class CountryHead(nn.Module):
 
     def __init__(self, embed_dim: int, num_countries: int, cfg: ModelConfig):
         super().__init__()
-        
+
         layers = []
         in_dim = embed_dim
         for h_dim in cfg.hidden_dims:
@@ -81,7 +81,7 @@ class CountryHead(nn.Module):
             layers.append(nn.ReLU(inplace=True))
             layers.append(nn.Dropout(cfg.dropout))
             in_dim = h_dim
-        
+
         self.mlp = nn.Sequential(*layers)
         self.country_classifier = nn.Linear(in_dim, num_countries)
 
@@ -146,7 +146,7 @@ def build_dino_geoguesser_model(
         num_countries=num_countries,
         cfg=model_cfg,
     )
-    
+
     # The device will be handled by the main training script or wrapper class
     return model, model_cfg
 
@@ -166,7 +166,11 @@ def get_device(cfg: Dict, cli_device: Optional[str] = None) -> torch.device:
     return torch.device("cpu")
 
 
+# ... (rest of imports)
+
+
 class DinoGeoguesser:
+
     """
     A wrapper for the DINO-based country classifier.
     This class handles loading a trained model and running predictions on
@@ -174,47 +178,52 @@ class DinoGeoguesser:
     """
 
     def __init__(self, weights_path: str, device: Optional[str] = None):
+
         if not Path(weights_path).exists():
+
             raise FileNotFoundError(f"DINO weights not found at {weights_path}")
 
         self.ckpt = torch.load(weights_path, map_location="cpu")
         self.cfg = self.ckpt['config']
+
         self.country2id = self.ckpt['country2id']
         self.id2country = {v: k for k, v in self.country2id.items()}
+
         self.device = get_device(self.cfg, cli_device=device)
 
-        self.model, _ = build_dino_geoguesser_model(self.cfg, num_countries=len(self.country2id))
+        self.model, model_cfg = build_dino_geoguesser_model(self.cfg, num_countries=len(self.country2id))
         self.model.load_state_dict(self.ckpt['state_dict'])
         self.model.to(self.device)
         self.model.eval()
 
-        _, self.transform = get_dino_transforms(self.cfg["data"]["image_size"])
+        self.processor = AutoImageProcessor.from_pretrained(model_cfg.pretrained_name)
+
         print(f"DinoGeoguesser initialized on device: {self.device}")
 
     def predict_from_crops(self, image: Image.Image, detections: Dict) -> Dict[str, float]:
         """
         Takes an image and YOLO detections, and returns aggregated country scores.
         """
+
         if not detections:
             return {}
 
-        all_probs = []
-        for instances in detections.values():
-            for instance in instances:
-                bbox = instance['bbox_crop']
-                crop = image.crop(bbox)
+        # Prepare a list of all crop images from all detected classes
+        crop_images = [image.crop(instance['bbox_crop']) for instances in detections.values() for instance in instances]
 
-                crop_tensor = self.transform(crop).unsqueeze(0).to(self.device)
-
-                with torch.no_grad():
-                    out = self.model(crop_tensor)
-                    probs = torch.softmax(out['country_logits'], dim=-1)
-                    all_probs.append(probs.cpu())
-
-        if not all_probs:
+        if not crop_images:
             return {}
 
-        mean_probs = torch.cat(all_probs, dim=0).mean(dim=0)
+        with torch.no_grad():
+            # Process all crops as a single batch for efficiency
+            inputs = self.processor(crop_images, return_tensors="pt").to(self.device)
+            out = self.model(inputs['pixel_values'])
+
+            probs = torch.softmax(out['country_logits'], dim=-1)
+
+            # Average the probabilities across all crops
+            mean_probs = probs.mean(dim=0)
 
         country_scores = {self.id2country[i]: mean_probs[i].item() for i in range(len(mean_probs))}
+
         return country_scores

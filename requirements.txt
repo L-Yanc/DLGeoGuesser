@@ -4,6 +4,9 @@ torchvision
 torchaudio
 tiktoken
 
+seaborn
+matplotlib
+
 opencv-python
 numpy
 pandas
