@@ -13,6 +13,8 @@ import numpy as np
 from sklearn.metrics import classification_report, confusion_matrix
 import matplotlib.pyplot as plt
 import seaborn as sns
+import pandas as pd
+import pandas as pd
 
 from .data import create_dataloaders, load_config
 from .model import DinoGeoguesserModel, build_dino_geoguesser_model, get_device
@@ -86,7 +88,6 @@ def evaluate(model: nn.Module, loader: DataLoader, dev: torch.device, use_embedd
     return {"loss": total_loss / steps, "acc": total_acc / steps}
 
 def precompute_embeddings(model: DinoGeoguesserModel, cfg: Dict, device: torch.device, save_path: Path):
-    # ... (precompute_embeddings function remains the same)
     print(f"Pre-computing embeddings and saving to {save_path}...")
     model.eval()
     train_loader, val_loader, test_loader, country2id = create_dataloaders(cfg, augmentations='none')
@@ -95,14 +96,18 @@ def precompute_embeddings(model: DinoGeoguesserModel, cfg: Dict, device: torch.d
 
     with torch.no_grad():
         for split_name, loader in splits.items():
-            all_embeds, all_labels = [], []
+            all_embeds, all_labels, all_contents = [], [], []
             for batch in tqdm(loader, desc=f"Computing {split_name} embeddings"):
                 embeds = model.backbone(batch["image"].to(device))
                 all_embeds.append(embeds.cpu())
                 all_labels.append(batch["country_id"].cpu())
+                all_contents.extend(batch["content"])
+            
             output[f'{split_name}_embeds'] = torch.cat(all_embeds, dim=0)
             output[f'{split_name}_labels'] = torch.cat(all_labels, dim=0)
-    
+            output[f'{split_name}_contents'] = all_contents
+            print(f"Computed {len(output[f'{split_name}_embeds'])} embeddings for {split_name} split.")
+
     save_path.parent.mkdir(parents=True, exist_ok=True)
     torch.save(output, save_path)
     print("Pre-computation complete.")
@@ -194,7 +199,6 @@ def evaluate_detailed(weights_path: str, split: str, device_str: Optional[str]):
     cfg = ckpt['config']
     country2id = ckpt['country2id']
     id2country = {v: k for k, v in country2id.items()}
-    class_names = list(id2country.values())
     
     device = get_device(cfg, cli_device=device_str)
     model, _ = build_dino_geoguesser_model(cfg, num_countries=len(country2id))
@@ -204,7 +208,6 @@ def evaluate_detailed(weights_path: str, split: str, device_str: Optional[str]):
     print(f"Loaded model from {weights_path} on device {device}")
 
     # --- Dataloaders ---
-    # Check if this was a pre-computed run
     run_dir = Path(weights_path).parent
     embeddings_path = run_dir / "embeddings.pt"
     use_embeddings = embeddings_path.exists()
@@ -219,10 +222,12 @@ def evaluate_detailed(weights_path: str, split: str, device_str: Optional[str]):
     loader = val_loader if split == 'val' else test_loader
     
     # --- Inference Loop ---
-    all_preds, all_targets = [], []
+    all_preds, all_targets, all_contents = [], [], []
     with torch.no_grad():
         for batch in tqdm(loader, desc=f"Evaluating on '{split}' split"):
             targets = batch["country_id"]
+            contents = batch["content"]
+            
             if use_embeddings:
                 features = batch["embedding"].to(device)
             else:
@@ -233,27 +238,33 @@ def evaluate_detailed(weights_path: str, split: str, device_str: Optional[str]):
             
             all_preds.extend(preds.cpu().numpy())
             all_targets.extend(targets.cpu().numpy())
+            all_contents.extend(contents)
 
     # --- Metrics and Reporting ---
-    print("\n" + "="*50)
-    print(f"Classification Report for '{split}' split")
-    print("="*50)
+    print("\n" + "="*80)
+    print(f"Overall Classification Report for '{split}' split")
+    print("="*80)
     
-    # Get all class names in the correct order of their IDs to pass to sklearn
     all_class_indices = sorted(id2country.keys())
     all_class_names = [id2country[i] for i in all_class_indices]
-
-    report = classification_report(
-        all_targets, 
-        all_preds, 
-        labels=all_class_indices, 
-        target_names=all_class_names, 
-        zero_division=0
-    )
+    report = classification_report(all_targets, all_preds, labels=all_class_indices, target_names=all_class_names, zero_division=0)
     print(report)
 
+    # --- Per-Content-Type Accuracy ---
+    print("\n" + "="*80)
+    print(f"Per-Content-Type Accuracy for '{split}' split")
+    print("="*80)
+    results_df = pd.DataFrame({'true': all_targets, 'pred': all_preds, 'content': all_contents})
+    results_df['correct'] = results_df['true'] == results_df['pred']
+    
+    content_accuracy = results_df.groupby('content')['correct'].mean().sort_values(ascending=False)
+    
+    for content_type, acc in content_accuracy.items():
+        support = len(results_df[results_df['content'] == content_type])
+        print(f"- {content_type:<30} | Accuracy: {acc:.3f} | Support: {support}")
+
     # --- Confusion Matrix Plotting ---
-    print("Generating confusion matrix plot...")
+    print("\nGenerating confusion matrix plot...")
     cm = confusion_matrix(all_targets, all_preds, labels=all_class_indices)
     plt.figure(figsize=(20, 20))
     sns.heatmap(cm, annot=False, xticklabels=all_class_names, yticklabels=all_class_names, cmap='Blues')
