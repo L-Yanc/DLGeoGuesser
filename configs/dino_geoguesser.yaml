@@ -15,15 +15,15 @@ model:
   pretrained_name: "facebook/dinov2-base"
   embed_dim: 768           # DINOv2 base has 768-dim embeddings
   freeze_backbone: true
-  hidden_dim: 512
+  hidden_dims: [1024, 1024, 2048, 2048, 512, 128]
   dropout: 0.1
 
 # === TRAINING SETTINGS ===
 training:
-  batch_size: 32
-  num_epochs: 5
-  lr_head: 1e-3
-  embedding_noise_level: 0.01
+  batch_size: 64
+  num_epochs: 500
+  lr_head: 0.0003
+  embedding_noise_level: 0.05
   seed: 100
   device: "mps" # Changed from cuda for local testing, user can change back
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import torch
 import torch.nn as nn
@@ -17,7 +17,7 @@ class ModelConfig:
     backbone: str
     pretrained_name: str
     freeze_backbone: bool
-    hidden_dim: int
+    hidden_dims: List[int]
     dropout: float
     device: str
 
@@ -33,7 +33,7 @@ def build_model_config(cfg: Dict) -> ModelConfig:
         backbone=m.get("backbone", "dino"),
         pretrained_name=m.get("pretrained_name", "facebook/dinov2-base"),
         freeze_backbone=bool(m.get("freeze_backbone", True)),
-        hidden_dim=int(m.get("hidden_dim", 512)),
+        hidden_dims=m.get("hidden_dims", [512]),
         dropout=float(m.get("dropout", 0.1)),
         device=train.get("device", "mps"),
     )
@@ -68,26 +68,29 @@ class DinoImageBackbone(nn.Module):
 class CountryHead(nn.Module):
     """
     MLP head on top of DINO embeddings for country classification.
+    The architecture is dynamically built based on the `hidden_dims` list.
     """
 
     def __init__(self, embed_dim: int, num_countries: int, cfg: ModelConfig):
         super().__init__()
-        hidden_dim = cfg.hidden_dim
-        dropout = cfg.dropout
-
-        self.mlp = nn.Sequential(
-            nn.Linear(embed_dim, hidden_dim),
-            nn.ReLU(inplace=True),
-            nn.Dropout(dropout),
-        )
-        self.country_classifier = nn.Linear(hidden_dim, num_countries)
+        
+        layers = []
+        in_dim = embed_dim
+        for h_dim in cfg.hidden_dims:
+            layers.append(nn.Linear(in_dim, h_dim))
+            layers.append(nn.ReLU(inplace=True))
+            layers.append(nn.Dropout(cfg.dropout))
+            in_dim = h_dim
+        
+        self.mlp = nn.Sequential(*layers)
+        self.country_classifier = nn.Linear(in_dim, num_countries)
 
     def forward(self, feats: torch.Tensor) -> Dict[str, torch.Tensor]:
         """
         feats: [B, embed_dim]
         Returns dict with:
           - 'country_logits': [B, num_countries]
-          - 'head_features': [B, hidden_dim]
+          - 'head_features': [B, last_hidden_dim]
         """
         h = self.mlp(feats)
         country_logits = self.country_classifier(h)
