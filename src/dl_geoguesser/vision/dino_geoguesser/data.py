@@ -9,7 +9,7 @@ import pandas as pd
 from PIL import Image
 
 import torch
-from torch.utils.data import Dataset, DataLoader, random_split
+from torch.utils.data import Dataset, DataLoader, random_split, TensorDataset
 from torchvision import transforms
 
 
@@ -32,13 +32,11 @@ class DataConfig:
 
 
 def load_config(config_path: str | Path) -> Dict:
-    """ Load the full YAML config as a plain dict. """
     with open(Path(config_path), "r") as f:
         return yaml.safe_load(f)
 
 
 def build_data_config(cfg: Dict) -> DataConfig:
-    """ Extract the data related fields from the full config. """
     data_cfg = cfg["data"]
     train_cfg = cfg["training"]
     return DataConfig(
@@ -55,18 +53,8 @@ def build_data_config(cfg: Dict) -> DataConfig:
 
 
 class GeoHintsDataset(Dataset):
-    """
-    Simple dataset that wraps a Pandas DataFrame.
-    """
-    def __init__(
-        self,
-        df: pd.DataFrame,
-        image_root: Path,
-        country2id: Dict[str, int],
-        image_column: str,
-        country_column: str,
-        transform: Optional[transforms.Compose] = None,
-    ):
+    """ Loads images and labels from a Pandas DataFrame for on-the-fly processing. """
+    def __init__(self, df: pd.DataFrame, image_root: Path, country2id: Dict[str, int], image_column: str, country_column: str, transform: Optional[transforms.Compose] = None):
         self.df = df
         self.image_root = image_root
         self.country2id = country2id
@@ -79,72 +67,68 @@ class GeoHintsDataset(Dataset):
 
     def __getitem__(self, idx: int):
         row = self.df.iloc[idx]
-        fname = row[self.image_column]
-        country = row[self.country_column]
-
-        img_path = self.image_root / fname
+        img_path = self.image_root / row[self.image_column]
         img = Image.open(img_path).convert("RGB")
-
-        if self.transform is not None:
+        if self.transform:
             img = self.transform(img)
+        
+        country_id = self.country2id[row[self.country_column]]
+        return {"image": img, "country_id": torch.tensor(country_id, dtype=torch.long)}
 
-        country_id = self.country2id[country]
+class EmbeddingDataset(Dataset):
+    """ A dataset for loading pre-computed embeddings and their labels. """
+    def __init__(self, embeddings: torch.Tensor, labels: torch.Tensor, augment: bool = False, noise_level: float = 0.01):
+        self.embeddings = embeddings
+        self.labels = labels
+        self.augment = augment
+        self.noise_level = noise_level
 
-        return {
-            "image": img,
-            "country_id": torch.tensor(country_id, dtype=torch.long),
-            "country": country,
-            "filename": fname,
-        }
+    def __len__(self) -> int:
+        return len(self.embeddings)
 
+    def __getitem__(self, idx: int):
+        embedding = self.embeddings[idx]
+        if self.augment:
+            noise = torch.randn_like(embedding) * self.noise_level
+            embedding += noise
+        return {"embedding": embedding, "country_id": self.labels[idx]}
 
 def build_label_mapping(df: pd.DataFrame, country_col: str) -> Dict[str, int]:
-    """ Build country label mapping from the full dataset. """
     countries = sorted(df[country_col].unique())
     return {c: i for i, c in enumerate(countries)}
 
-
-def get_dino_transforms(image_size: int) -> Tuple[transforms.Compose, transforms.Compose]:
-    """ Returns (train_transform, eval_transform) using DINOv2 normalisation. """
-    train_t = transforms.Compose([
-        transforms.RandomResizedCrop(image_size, scale=(0.8, 1.0)),
-        transforms.RandomHorizontalFlip(),
-        transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2),
-        transforms.ToTensor(),
-        transforms.Normalize(mean=DINO_MEAN, std=DINO_STD),
-    ])
-    eval_t = transforms.Compose([
+def get_dino_transforms(image_size: int, augment: bool) -> transforms.Compose:
+    if augment:
+        return transforms.Compose([
+            transforms.RandomResizedCrop(image_size, scale=(0.8, 1.0)),
+            transforms.RandomHorizontalFlip(),
+            transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=DINO_MEAN, std=DINO_STD),
+        ])
+    return transforms.Compose([
         transforms.Resize(image_size),
         transforms.CenterCrop(image_size),
         transforms.ToTensor(),
         transforms.Normalize(mean=DINO_MEAN, std=DINO_STD),
     ])
-    return train_t, eval_t
 
-
-def create_datasets(
-    cfg: Dict,
-) -> Tuple[Dataset, Dataset, Dataset, Dict[str, int]]:
-    """ Create train, val and test datasets by splitting the main metadata file. """
+def create_image_datasets(cfg: Dict, use_image_aug: bool) -> Tuple[Dataset, Dataset, Dataset, Dict[str, int]]:
     data_cfg = build_data_config(cfg)
-    
     df = pd.read_csv(data_cfg.metadata_csv)
-
-    # Drop rows where the image file does not exist
+    
     def _exists(fname: str) -> bool:
         return (data_cfg.root / fname).exists()
-    
-    initial_rows = len(df)
     df = df[df[data_cfg.image_column].apply(_exists)].reset_index(drop=True)
-    if len(df) < initial_rows:
-        print(f"[Dataset] Dropped {initial_rows - len(df)} rows with missing images.")
 
     country2id = build_label_mapping(df, data_cfg.country_column)
-    train_t, eval_t = get_dino_transforms(data_cfg.image_size)
-
-    # Create temporary datasets with train and eval transforms
-    full_dataset_train = GeoHintsDataset(df, data_cfg.root, country2id, data_cfg.image_column, data_cfg.country_column, train_t)
-    full_dataset_eval = GeoHintsDataset(df, data_cfg.root, country2id, data_cfg.image_column, data_cfg.country_column, eval_t)
+    
+    # Create one dataset with augmentations and one without
+    train_transform = get_dino_transforms(data_cfg.image_size, augment=use_image_aug)
+    eval_transform = get_dino_transforms(data_cfg.image_size, augment=False)
+    
+    full_dataset_train = GeoHintsDataset(df, data_cfg.root, country2id, data_cfg.image_column, data_cfg.country_column, train_transform)
+    full_dataset_eval = GeoHintsDataset(df, data_cfg.root, country2id, data_cfg.image_column, data_cfg.country_column, eval_transform)
 
     # Split indices
     total_size = len(df)
@@ -152,30 +136,38 @@ def create_datasets(
     test_size = int(total_size * data_cfg.test_split_size)
     train_size = total_size - val_size - test_size
 
-    generator = torch.Generator().manual_seed(cfg.get("training", {}).get("seed", 42))
+    generator = torch.Generator().manual_seed(cfg["training"]["seed"])
     indices = torch.randperm(total_size, generator=generator).tolist()
     
-    train_indices = indices[:train_size]
-    val_indices = indices[train_size : train_size + val_size]
-    test_indices = indices[train_size + val_size :]
-
-    # Create subsets with correct transforms
-    train_ds = torch.utils.data.Subset(full_dataset_train, train_indices)
-    val_ds = torch.utils.data.Subset(full_dataset_eval, val_indices)
-    test_ds = torch.utils.data.Subset(full_dataset_eval, test_indices)
-
-    print(f"[Dataset] Split: {len(train_ds)} train, {len(val_ds)} val, {len(test_ds)} test.")
+    # Use the appropriate dataset for each split
+    train_ds = torch.utils.data.Subset(full_dataset_train, indices[:train_size])
+    val_ds = torch.utils.data.Subset(full_dataset_eval, indices[train_size : train_size + val_size])
+    test_ds = torch.utils.data.Subset(full_dataset_eval, indices[train_size + val_size :])
     
     return train_ds, val_ds, test_ds, country2id
 
-
 def create_dataloaders(
     cfg: Dict,
+    augmentations: str = 'none',
+    precomputed_path: Optional[Path] = None,
     shuffle_train: bool = True,
 ) -> Tuple[DataLoader, DataLoader, DataLoader, Dict[str, int]]:
-    """ Convenience wrapper to create datasets and wrap them in DataLoaders. """
     data_cfg = build_data_config(cfg)
-    train_ds, val_ds, test_ds, country2id = create_datasets(cfg)
+    
+    if precomputed_path and precomputed_path.exists():
+        print(f"Loading pre-computed embeddings from {precomputed_path}")
+        data = torch.load(precomputed_path)
+        country2id = data['country2id']
+        
+        use_embed_aug = 'embedding' in augmentations or 'both' in augmentations
+        noise_level = float(cfg.get("training", {}).get("embedding_noise_level", 0.01))
+        
+        train_ds = EmbeddingDataset(data['train_embeds'], data['train_labels'], augment=use_embed_aug, noise_level=noise_level)
+        val_ds = EmbeddingDataset(data['val_embeds'], data['val_labels'], augment=False)
+        test_ds = EmbeddingDataset(data['test_embeds'], data['test_labels'], augment=False)
+    else:
+        use_image_aug = 'image' in augmentations or 'both' in augmentations
+        train_ds, val_ds, test_ds, country2id = create_image_datasets(cfg, use_image_aug)
 
     train_loader = DataLoader(train_ds, batch_size=data_cfg.batch_size, shuffle=shuffle_train, num_workers=data_cfg.num_workers, pin_memory=True)
     val_loader = DataLoader(val_ds, batch_size=data_cfg.batch_size, shuffle=False, num_workers=data_cfg.num_workers, pin_memory=True)

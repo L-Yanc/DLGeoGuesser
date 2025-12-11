@@ -4,22 +4,66 @@ This directory contains the implementation of a DINOv2-based country classifier.
 
 ## Training
 
-The model can be trained using the provided command-line interface. While the device can be set in `configs/dino_geoguesser.yaml`, it's recommended to override it with the `--device` command-line argument.
+The model is trained via the command-line interface in `main.py`. The training pipeline is highly flexible and supports two main modes:
 
-To start training, run the following command from the project root:
+1.  **On-the-Fly Mode (Default)**: Loads images and computes DINO embeddings in real-time during the training loop. This is simpler but much slower. It allows for image-based data augmentation.
+2.  **Pre-computed Mode**: Performs a one-time pass to compute all DINO embeddings for the dataset and saves them to the run folder. Subsequent training epochs load these saved embeddings, resulting in extremely fast training of the classifier head.
 
+All training artifacts, including checkpoints and any pre-computed embeddings, are saved to a run-specific directory inside `runs/dino/`.
+
+### Training Flags
+
+-   `--name <run_name>`: A unique name for the training run.
+-   `--device <name>`: The hardware to run on (`cpu`, `mps`, `cuda`).
+-   `--precompute-embeddings`: If present, activates the pre-computed training mode.
+-   `--augmentations <type>`: Chooses the augmentation strategy.
+    -   `none`: No augmentations.
+    -   `image`: (On-the-fly mode only) Applies image-based augmentations like random cropping and color jitter.
+    -   `embedding`: Adds Gaussian noise to embeddings (works in both modes).
+    -   `both`: Applies both `image` and `embedding` augmentations (on-the-fly mode only).
+-   `--resume`: If present, resumes training from the `last.pt` checkpoint within the run's directory (`--name`).
+-   `--weights <path>`: Starts a new run but initializes the model's weights from a specified `.pt` file for fine-tuning.
+
+### Example Commands
+
+All commands should be run from the project root.
+
+**Scenario 1: Fast training with pre-computed embeddings and noise augmentation.**
+This is the recommended approach for quick experiments.
 ```bash
-# To run on an Apple Silicon Mac
-python -m src.dl_geoguesser.vision.dino_geoguesser.main train --name dino_mac_run --device mps
-
-# To run on a an NVIDIA GPU
-python -m src.dl_geoguesser.vision.dino_geoguesser.main train --name dino_gpu_run --device cuda
+python -m src.dl_geoguesser.vision.dino_geoguesser.main train \
+  --name dino_precomputed_run \
+  --device mps \
+  --precompute-embeddings \
+  --augmentations embedding
 ```
 
-- `--name`: Specifies a unique name for the training run. All artifacts will be saved to `runs/dino/<name>`.
-- `--device`: Specifies the hardware to run on (`cpu`, `mps`, `cuda`). This overrides any device setting in the config file.
+**Scenario 2: Slower training with on-the-fly image processing and augmentation.**
+Use this if image-based augmentations are critical and you have time.
+```bash
+python -m src.dl_geoguesser.vision.dino_geoguesser.main train \
+  --name dino_image_aug_run \
+  --device mps \
+  --augmentations image
+```
 
-The best performing model checkpoint will be saved as `runs/dino/<name>/best.pt`.
+**Scenario 3: Resuming an interrupted run.**
+This will automatically use pre-computed embeddings if they were created by the original run.
+```bash
+python -m src.dl_geoguesser.vision.dino_geoguesser.main train \
+  --name dino_precomputed_run \
+  --resume \
+  --device mps
+```
+
+**Scenario 4: Fine-tuning from existing weights.**
+Starts a new training session using weights from a previous `best.pt` file.
+```bash
+python -m src.dl_geoguesser.vision.dino_geoguesser.main train \
+  --name dino_finetune_run \
+  --weights "runs/dino/dino_precomputed_run/best.pt" \
+  --device mps
+```
 
 ## Usage (as a Library Component)
 

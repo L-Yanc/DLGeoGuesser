@@ -23,9 +23,8 @@ training:
   batch_size: 32
   num_epochs: 5
   lr_head: 1e-3
-  lr_backbone: 1e-5
-  weight_decay: 1e-4
-  seed: 42
+  embedding_noise_level: 0.01
+  seed: 100
   device: "mps" # Changed from cuda for local testing, user can change back
 
 # === EVALUATION SETTINGS ===
