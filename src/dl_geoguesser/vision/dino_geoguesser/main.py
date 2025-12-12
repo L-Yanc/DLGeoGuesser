@@ -11,6 +11,7 @@ import pandas as pd
 import seaborn as sns
 import torch
 import torch.nn as nn
+import json
 import yaml
 from sklearn.metrics import classification_report, confusion_matrix
 from torch.utils.data import DataLoader
@@ -175,9 +176,20 @@ def train(cfg_path: str, name: str, device_str: Optional[str], weights: Optional
     use_embed_aug = 'embedding' in augmentations or 'both' in augmentations
     noise = float(cfg["training"]["embedding_noise_level"]) if use_embed_aug else 0.0
 
+    stats_history = []
     for epoch in range(start_epoch, num_epochs):
         train_stats = train_one_epoch(model, train_loader, optimizer, device, epoch, num_epochs, precompute, noise)
         val_stats = evaluate(model, val_loader, device, precompute)
+        
+        stats = {
+            "epoch": epoch,
+            "train_loss": train_stats["loss"],
+            "train_acc": train_stats["acc"],
+            "val_loss": val_stats["loss"],
+            "val_acc": val_stats["acc"],
+        }
+        stats_history.append(stats)
+        
         print(f"[Epoch {epoch+1}/{num_epochs}] train_loss={train_stats['loss']:.4f}, acc={train_stats['acc']:.3f} | val_loss={val_stats['loss']:.4f}, acc={val_stats['acc']:.3f}")
 
         if val_stats['acc'] > best_val_acc:
@@ -185,6 +197,12 @@ def train(cfg_path: str, name: str, device_str: Optional[str], weights: Optional
             print(f"  -> New best val acc: {best_val_acc:.3f}")
             save_checkpoint(model, optimizer, epoch, best_val_acc, cfg, country2id, save_dir, name="best.pt")
         save_checkpoint(model, optimizer, epoch, best_val_acc, cfg, country2id, save_dir, name="last.pt")
+
+    # --- Phase 6: Save training stats ---
+    stats_path = save_dir / "stats.json"
+    with open(stats_path, "w") as f:
+        json.dump(stats_history, f, indent=2)
+    print(f"Saved training stats to {stats_path}")
 
     print("\nTraining complete. Final test set evaluation...")
     test_stats = evaluate(model, test_loader, device, precompute)

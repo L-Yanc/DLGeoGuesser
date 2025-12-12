@@ -11,6 +11,7 @@ import pandas as pd
 import seaborn as sns
 import torch
 import torch.nn as nn
+import json
 import yaml
 from sklearn.metrics import classification_report, confusion_matrix
 from torch.utils.data import DataLoader
@@ -176,9 +177,20 @@ def train(cfg_path: str, name: str, device_str: Optional[str], weights: Optional
     use_embed_aug = 'embedding' in augmentations or 'both' in augmentations
     noise = float(cfg["training"]["embedding_noise_level"]) if use_embed_aug else 0.0
 
+    stats_history = []
     for epoch in range(start_epoch, num_epochs):
         train_stats = train_one_epoch(model, train_loader, optimizer, device, epoch, num_epochs, precompute, noise)
         val_stats = evaluate(model, val_loader, device, precompute)
+        
+        stats = {
+            "epoch": epoch,
+            "train_loss": train_stats["loss"],
+            "train_acc": train_stats["acc"],
+            "val_loss": val_stats["loss"],
+            "val_acc": val_stats["acc"],
+        }
+        stats_history.append(stats)
+        
         print(f"[Epoch {epoch+1}/{num_epochs}] train_loss={train_stats['loss']:.4f}, acc={train_stats['acc']:.3f} | val_loss={val_stats['loss']:.4f}, acc={val_stats['acc']:.3f}")
 
         if val_stats['acc'] > best_val_acc:
@@ -188,6 +200,12 @@ def train(cfg_path: str, name: str, device_str: Optional[str], weights: Optional
         save_checkpoint(model, optimizer, epoch, best_val_acc, cfg, class2id, save_dir, name="last.pt")
         
         scheduler.step()
+
+    # --- Phase 6: Save training stats ---
+    stats_path = save_dir / "stats.json"
+    with open(stats_path, "w") as f:
+        json.dump(stats_history, f, indent=2)
+    print(f"Saved training stats to {stats_path}")
 
     print("\nTraining complete. Final test set evaluation...")
     test_stats = evaluate(model, test_loader, device, precompute)
@@ -225,10 +243,11 @@ def evaluate_detailed(weights_path: str, split: str, device_str: Optional[str]):
     loader = val_loader if split == 'val' else test_loader
 
     # --- Inference Loop ---
-    all_preds, all_targets = [], []
+    all_preds, all_targets, all_contents = [], [], []
     with torch.no_grad():
         for batch in tqdm(loader, desc=f"Evaluating on '{split}' split"):
             targets = batch["class_id"]
+            contents = batch["content"]
 
             if use_embeddings:
                 features = batch["embedding"].to(device)
@@ -240,6 +259,7 @@ def evaluate_detailed(weights_path: str, split: str, device_str: Optional[str]):
 
             all_preds.extend(preds.cpu().numpy())
             all_targets.extend(targets.cpu().numpy())
+            all_contents.extend(contents)
 
     # --- Metrics and Reporting ---
     print("\n" + "="*80)
@@ -250,6 +270,19 @@ def evaluate_detailed(weights_path: str, split: str, device_str: Optional[str]):
     all_class_names = [id2class[i] for i in all_class_indices]
     report = classification_report(all_targets, all_preds, labels=all_class_indices, target_names=all_class_names, zero_division=0)
     print(report)
+
+    # --- Confusion Matrix Plotting ---
+    print("\nGenerating confusion matrix plot...")
+    cm = confusion_matrix(all_targets, all_preds, labels=all_class_indices)
+    plt.figure(figsize=(20, 20))
+    sns.heatmap(cm, annot=False, xticklabels=all_class_names, yticklabels=all_class_names, cmap='Blues')
+    plt.xlabel("Predicted")
+    plt.ylabel("True")
+    plt.title(f"Confusion Matrix - '{split}' Split")
+
+    plot_path = run_dir / f"confusion_matrix_{split}.png"
+    plt.savefig(plot_path, dpi=300, bbox_inches='tight')
+    print(f"Confusion matrix saved to: {plot_path}")
 
 
 def generate_gradcam_image(weights_path: str, image_path: str, class_name: str, output_path: str, device_str: Optional[str]):
