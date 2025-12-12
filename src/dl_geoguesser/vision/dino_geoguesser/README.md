@@ -107,39 +107,37 @@ Below is an example of how to use it in a script:
 
 ```python
 from PIL import Image
-from dl_geoguesser.vision.yolo_detector import YOLOv8Detector
 from dl_geoguesser.vision.dino_geoguesser import DinoGeoguesser
 
 # --- Configuration ---
-# Select the device for inference ('mps', 'cuda', or 'cpu')
 DEVICE = "mps" 
-
-# 1. Define paths to the trained models
 dino_weights_path = "runs/dino/dino_country_classifier/best.pt"
-yolo_weights_path = "path/to/your/yolo_weights.pt" # e.g., runs/detect/train/weights/best.pt
 image_path = "path/to/an/image.jpg"
 
-# 2. Instantiate the models on the desired device
+# --- Instantiate the Model ---
 dino_classifier = DinoGeoguesser(weights_path=dino_weights_path, device=DEVICE)
-# Note: The YOLOv8Detector can also be assigned a device on init
-yolo_detector = YOLOv8Detector(model_path=yolo_weights_path, device=DEVICE)
 
-# 3. Load the image and get object detections
+# --- Create a Dummy Detection ---
+# In a real pipeline, this would come from an object detector like YOLO.
+# The dictionary contains dummy bounding box coordinates for a detected object.
 image = Image.open(image_path).convert("RGB")
-detections = yolo_detector.predict(image)
+dummy_detections = {
+    "car": [{
+        "bbox_crop": (10, 10, 100, 100), # (left, top, right, bottom)
+        "confidence": 0.9
+    }]
+}
 
-# 4. Get country scores from the DINO classifier using the crops
-if detections:
-    country_scores = dino_classifier.predict_from_crops(image, detections)
+# --- Get Country Scores ---
+country_scores = dino_classifier.predict_from_crops(image, dummy_detections)
     
-    # Sort and print the top 5 predictions
+# --- Print Top 5 Predictions ---
+if country_scores:
     sorted_scores = sorted(country_scores.items(), key=lambda item: item[1], reverse=True)
-    
     print("--- Top 5 Country Predictions ---")
     for country, score in sorted_scores[:5]:
         print(f"{country}: {score:.3f}")
     print("---")
 else:
-    print("No objects detected in the image.")
-
+    print("Could not make a prediction.")
 ```

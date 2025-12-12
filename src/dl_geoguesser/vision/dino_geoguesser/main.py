@@ -1,36 +1,32 @@
 from __future__ import annotations
+
 import argparse
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Optional
-import shutil
+
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+import seaborn as sns
 import torch
 import torch.nn as nn
 import yaml
+from sklearn.metrics import classification_report, confusion_matrix
 from torch.utils.data import DataLoader
 from tqdm import tqdm
-import numpy as np
-from sklearn.metrics import classification_report, confusion_matrix
-import matplotlib.pyplot as plt
-import seaborn as sns
-import pandas as pd
-import pandas as pd
 
 from .data import create_dataloaders, load_config
 from .model import DinoGeoguesserModel, build_dino_geoguesser_model, get_device
 
-# ... (rest of the training code from before, unchanged) ...
-
-@dataclass
-class TrainingState:
-    epoch: int
-    best_val_acc: float
 
 def accuracy_from_logits(logits: torch.Tensor, targets: torch.Tensor) -> float:
     preds = torch.argmax(logits, dim=-1)
     correct = (preds == targets).sum().item()
     total = targets.numel()
     return correct / total if total > 0 else 0.0
+
 
 def train_one_epoch(model: nn.Module, loader: DataLoader, optim: torch.optim.Optimizer, dev: torch.device, epoch: int, num_epochs: int, use_embeddings: bool, augment_embedding_noise: float) -> Dict[str, float]:
     model.train()
@@ -65,6 +61,7 @@ def train_one_epoch(model: nn.Module, loader: DataLoader, optim: torch.optim.Opt
 
     return {"loss": total_loss / steps, "acc": total_acc / steps}
 
+
 def evaluate(model: nn.Module, loader: DataLoader, dev: torch.device, use_embeddings: bool) -> Dict[str, float]:
     model.eval()
     loss_fn = nn.CrossEntropyLoss()
@@ -87,6 +84,7 @@ def evaluate(model: nn.Module, loader: DataLoader, dev: torch.device, use_embedd
             loop.set_postfix(loss=loss.item(), acc=acc)
     return {"loss": total_loss / steps, "acc": total_acc / steps}
 
+
 def precompute_embeddings(model: DinoGeoguesserModel, cfg: Dict, device: torch.device, save_path: Path):
     print(f"Pre-computing embeddings and saving to {save_path}...")
     model.eval()
@@ -102,7 +100,7 @@ def precompute_embeddings(model: DinoGeoguesserModel, cfg: Dict, device: torch.d
                 all_embeds.append(embeds.cpu())
                 all_labels.append(batch["country_id"].cpu())
                 all_contents.extend(batch["content"])
-            
+
             output[f'{split_name}_embeds'] = torch.cat(all_embeds, dim=0)
             output[f'{split_name}_labels'] = torch.cat(all_labels, dim=0)
             output[f'{split_name}_contents'] = all_contents
@@ -112,15 +110,15 @@ def precompute_embeddings(model: DinoGeoguesserModel, cfg: Dict, device: torch.d
     torch.save(output, save_path)
     print("Pre-computation complete.")
 
+
 def save_checkpoint(model, optimizer, epoch, best_val_acc, cfg, country2id, out_dir, name="best.pt"):
-    # ... (save_checkpoint function remains the same)
     out_dir.mkdir(parents=True, exist_ok=True)
     payload = {"epoch": epoch, "best_val_acc": best_val_acc, "state_dict": model.state_dict(), "optimizer_state_dict": optimizer.state_dict(), "config": cfg, "country2id": country2id}
     torch.save(payload, out_dir / name)
     print(f"[Training] Saved checkpoint to {out_dir / name}")
 
+
 def train(cfg_path: str, name: str, device_str: Optional[str], weights: Optional[str], resume: bool, precompute: bool, augmentations: str):
-    # ... (train function remains the same)
     # --- Phase 1: Config, Device, and Directory Setup ---
     if precompute and ('image' in augmentations or 'both' in augmentations):
         raise ValueError("Image augmentation is not compatible with pre-computed embeddings.")
@@ -129,8 +127,9 @@ def train(cfg_path: str, name: str, device_str: Optional[str], weights: Optional
         temp_cfg = load_config(cfg_path)
         save_dir = Path(temp_cfg["eval"]["save_dir"]) / name
         ckpt_path = save_dir / "last.pt"
-        if not ckpt_path.exists(): raise FileNotFoundError(f"Resume checkpoint not found: {ckpt_path}")
-        
+        if not ckpt_path.exists():
+            raise FileNotFoundError(f"Resume checkpoint not found: {ckpt_path}")
+
         ckpt = torch.load(ckpt_path, map_location="cpu")
         cfg = ckpt['config']
         country2id = ckpt['country2id']
@@ -170,7 +169,7 @@ def train(cfg_path: str, name: str, device_str: Optional[str], weights: Optional
         train_loader, val_loader, test_loader, _ = create_dataloaders(cfg, augmentations=augmentations, precomputed_path=embeddings_path)
     else:
         train_loader, val_loader, test_loader, _ = create_dataloaders(cfg, augmentations=augmentations)
-        
+
     # --- Phase 5: Training Loop ---
     print(f"Starting training on device: {device}")
     num_epochs = cfg["training"]["num_epochs"]
@@ -192,14 +191,16 @@ def train(cfg_path: str, name: str, device_str: Optional[str], weights: Optional
     test_stats = evaluate(model, test_loader, device, precompute)
     print(f"[Test] loss={test_stats['loss']:.4f}, acc={test_stats['acc']:.3f}")
 
+
 def evaluate_detailed(weights_path: str, split: str, device_str: Optional[str]):
     # --- Load Model and Config ---
-    if not Path(weights_path).exists(): raise FileNotFoundError(f"Weights not found: {weights_path}")
+    if not Path(weights_path).exists():
+        raise FileNotFoundError(f"Weights not found: {weights_path}")
     ckpt = torch.load(weights_path, map_location="cpu")
     cfg = ckpt['config']
     country2id = ckpt['country2id']
     id2country = {v: k for k, v in country2id.items()}
-    
+
     device = get_device(cfg, cli_device=device_str)
     model, _ = build_dino_geoguesser_model(cfg, num_countries=len(country2id))
     model.load_state_dict(ckpt['state_dict'])
@@ -211,31 +212,31 @@ def evaluate_detailed(weights_path: str, split: str, device_str: Optional[str]):
     run_dir = Path(weights_path).parent
     embeddings_path = run_dir / "embeddings.pt"
     use_embeddings = embeddings_path.exists()
-    
+
     if use_embeddings:
         print("Found pre-computed embeddings for this run. Using them for evaluation.")
         _, val_loader, test_loader, _ = create_dataloaders(cfg, precomputed_path=embeddings_path)
     else:
         print("No pre-computed embeddings found. Using on-the-fly image evaluation.")
         _, val_loader, test_loader, _ = create_dataloaders(cfg)
-        
+
     loader = val_loader if split == 'val' else test_loader
-    
+
     # --- Inference Loop ---
     all_preds, all_targets, all_contents = [], [], []
     with torch.no_grad():
         for batch in tqdm(loader, desc=f"Evaluating on '{split}' split"):
             targets = batch["country_id"]
             contents = batch["content"]
-            
+
             if use_embeddings:
                 features = batch["embedding"].to(device)
             else:
                 features = model.backbone(batch["image"].to(device))
-            
+
             logits = model.head(features)["country_logits"]
             preds = torch.argmax(logits, dim=-1)
-            
+
             all_preds.extend(preds.cpu().numpy())
             all_targets.extend(targets.cpu().numpy())
             all_contents.extend(contents)
@@ -244,7 +245,7 @@ def evaluate_detailed(weights_path: str, split: str, device_str: Optional[str]):
     print("\n" + "="*80)
     print(f"Overall Classification Report for '{split}' split")
     print("="*80)
-    
+
     all_class_indices = sorted(id2country.keys())
     all_class_names = [id2country[i] for i in all_class_indices]
     report = classification_report(all_targets, all_preds, labels=all_class_indices, target_names=all_class_names, zero_division=0)
@@ -256,9 +257,9 @@ def evaluate_detailed(weights_path: str, split: str, device_str: Optional[str]):
     print("="*80)
     results_df = pd.DataFrame({'true': all_targets, 'pred': all_preds, 'content': all_contents})
     results_df['correct'] = results_df['true'] == results_df['pred']
-    
+
     content_accuracy = results_df.groupby('content')['correct'].mean().sort_values(ascending=False)
-    
+
     for content_type, acc in content_accuracy.items():
         support = len(results_df[results_df['content'] == content_type])
         print(f"- {content_type:<30} | Accuracy: {acc:.3f} | Support: {support}")
@@ -271,7 +272,7 @@ def evaluate_detailed(weights_path: str, split: str, device_str: Optional[str]):
     plt.xlabel("Predicted")
     plt.ylabel("True")
     plt.title(f"Confusion Matrix - '{split}' Split")
-    
+
     plot_path = run_dir / f"confusion_matrix_{split}.png"
     plt.savefig(plot_path, dpi=300, bbox_inches='tight')
     print(f"Confusion matrix saved to: {plot_path}")
@@ -280,7 +281,7 @@ def evaluate_detailed(weights_path: str, split: str, device_str: Optional[str]):
 def main():
     parser = argparse.ArgumentParser(description="DINO Geoguesser Model CLI")
     subparsers = parser.add_subparsers(dest="command", required=True)
-    
+
     # --- Train Command ---
     parser_train = subparsers.add_parser("train", help="Train the model")
     parser_train.add_argument("--config", type=str, default="configs/dino_geoguesser.yaml")
@@ -290,7 +291,7 @@ def main():
     parser_train.add_argument("--resume", action="store_true", help="Resume from last.pt in run directory.")
     parser_train.add_argument("--precompute-embeddings", action="store_true", help="Pre-compute and use embeddings for faster training.")
     parser_train.add_argument("--augmentations", type=str, default="none", choices=['none', 'image', 'embedding', 'both'])
-    
+
     # --- Evaluate Command ---
     parser_eval = subparsers.add_parser("evaluate", help="Evaluate a trained model with detailed metrics.")
     parser_eval.add_argument("--weights", type=str, required=True, help="Path to the trained model weights (.pt file).")
@@ -299,10 +300,12 @@ def main():
 
     args = parser.parse_args()
     if args.command == "train":
-        if args.resume and args.weights: raise ValueError("--resume and --weights are mutually exclusive.")
+        if args.resume and args.weights:
+            raise ValueError("--resume and --weights are mutually exclusive.")
         train(args.config, args.name, args.device, args.weights, args.resume, args.precompute_embeddings, args.augmentations)
     elif args.command == "evaluate":
         evaluate_detailed(args.weights, args.split, args.device)
+
 
 if __name__ == "__main__":
     main()

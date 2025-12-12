@@ -10,8 +10,8 @@ import torch
 import yaml
 from PIL import Image
 from sklearn.model_selection import train_test_split
-from torch.utils.data import (DataLoader, Dataset, TensorDataset,
-                              WeightedRandomSampler, random_split)
+from torch.utils.data import (DataLoader, Dataset, WeightedRandomSampler,
+                              random_split)
 from torchvision import transforms
 from transformers import AutoImageProcessor
 

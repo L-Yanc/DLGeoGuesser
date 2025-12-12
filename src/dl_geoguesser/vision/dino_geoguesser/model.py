@@ -9,8 +9,6 @@ import torch.nn as nn
 from PIL import Image
 from transformers import AutoImageProcessor, AutoModel
 
-from .data import get_dino_transforms
-
 
 @dataclass
 class ModelConfig:
@@ -166,9 +164,6 @@ def get_device(cfg: Dict, cli_device: Optional[str] = None) -> torch.device:
     return torch.device("cpu")
 
 
-# ... (rest of imports)
-
-
 class DinoGeoguesser:
 
     """
@@ -178,27 +173,28 @@ class DinoGeoguesser:
     """
 
     def __init__(self, weights_path: str, device: Optional[str] = None):
+        self.device = get_device(self._load_checkpoint(weights_path), cli_device=device)
+        self._initialize_model()
+        self._initialize_processor()
+        print(f"DinoGeoguesser initialized on device: {self.device}")
 
+    def _load_checkpoint(self, weights_path: str) -> Dict:
         if not Path(weights_path).exists():
-
             raise FileNotFoundError(f"DINO weights not found at {weights_path}")
-
         self.ckpt = torch.load(weights_path, map_location="cpu")
         self.cfg = self.ckpt['config']
-
         self.country2id = self.ckpt['country2id']
         self.id2country = {v: k for k, v in self.country2id.items()}
+        return self.cfg
 
-        self.device = get_device(self.cfg, cli_device=device)
-
-        self.model, model_cfg = build_dino_geoguesser_model(self.cfg, num_countries=len(self.country2id))
+    def _initialize_model(self):
+        self.model, self.model_cfg = build_dino_geoguesser_model(self.cfg, num_countries=len(self.country2id))
         self.model.load_state_dict(self.ckpt['state_dict'])
         self.model.to(self.device)
         self.model.eval()
 
-        self.processor = AutoImageProcessor.from_pretrained(model_cfg.pretrained_name)
-
-        print(f"DinoGeoguesser initialized on device: {self.device}")
+    def _initialize_processor(self):
+        self.processor = AutoImageProcessor.from_pretrained(self.model_cfg.pretrained_name)
 
     def predict_from_crops(self, image: Image.Image, detections: Dict) -> Dict[str, float]:
         """

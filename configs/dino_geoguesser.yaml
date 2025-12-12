@@ -14,7 +14,6 @@ data:
 model:
   backbone: "dino"
   pretrained_name: "facebook/dinov2-base"
-  embed_dim: 768           # DINOv2 base has 768-dim embeddings
   freeze_backbone: true
   hidden_dims: [1024, 1024, 512, 128]
   dropout: 0.1
@@ -24,7 +23,7 @@ training:
   batch_size: 32
   num_epochs: 20
   lr_head: 0.001
-  embedding_noise_level: 0.01
+  embedding_noise_level: 0.07
   seed: 100
   device: "mps" # Changed from cuda for local testing, user can change back
   use_weighted_sampling: false
@@ -33,5 +32,3 @@ training:
 # === EVALUATION SETTINGS ===
 eval:
   save_dir: "runs/dino"
-  top_k: 5
-  generate_confusion_matrix: true
