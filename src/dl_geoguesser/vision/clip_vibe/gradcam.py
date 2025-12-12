@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+import math
+from typing import Optional, Tuple, List
 
 import torch
 import torch.nn.functional as F
-from PIL import Image
-import numpy as np
+import torch.nn as nn # Not strictly needed with this approach, but good to keep if further hook usage is considered
 
 
 def compute_gradcam(
@@ -16,36 +15,41 @@ def compute_gradcam(
     target_class: Optional[int] = None,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """
-    Very simple GradCAM-like saliency:
-
-    - Treat input image as requires_grad
-    - Pick a target logit
-    - Backprop d(logit)/d(image)
-    - Aggregate gradient magnitude over channels to get a heatmap
+    Computes Attention-based Grad-CAM for a Vision Transformer (ViT) model.
+    This method leverages attention maps and their gradients to create heatmaps,
+    addressing the limitation of direct gradient-based methods when classification
+    relies solely on the CLS token.
 
     Args:
-        model: ClipVibeModel
-        images: [B, 3, H, W] tensor (already normalised)
-        device: torch.device
-        target_class:
-            If provided: The class index to explain.
-            If None: use argmax prediction.
+        model: The ViT-based model (e.g., ClipVibeModel).
+        images: [B, 3, H, W] tensor of normalised images.
+        device: The torch device to use.
+        target_class: If provided, the class index to explain. If None,
+                      the predicted class with the highest score is used.
 
     Returns:
-        heatmaps: [B, H, W] tensor (0..1)
-        preds:    [B] tensor of predicted class indices
+        A tuple containing:
+        - heatmaps: [B, H_patch, W_patch] tensor of class activation maps.
+        - preds: [B] tensor of predicted class indices.
     """
     model.eval()
     images = images.to(device)
-    images = images.clone().detach().requires_grad_(True)
 
-    # Forward pass
+    # Forward pass to get logits and all attention maps
     out = model(images)
-    logits = out["logits"]  # [B, num_classes]
+    logits = out["logits"]
+    all_attentions: Tuple[torch.Tensor, ...] = out["attentions"] # attentions are a tuple of tensors for each layer
+
+    # We are interested in the attention maps of the last layer
+    # These attentions have shape [B, num_heads, N, N] where N = num_patches + 1 (for CLS token)
+    last_layer_attention = all_attentions[-1]
+
+    # Ensure gradients can be computed for the attention maps
+    last_layer_attention.retain_grad()
 
     # Choose target class per sample
     with torch.no_grad():
-        preds = torch.argmax(logits, dim=-1)  # [B]
+        preds = torch.argmax(logits, dim=-1)
 
     if target_class is None:
         target_indices = preds
@@ -54,28 +58,54 @@ def compute_gradcam(
 
     # Build scalar objective: sum of selected logits
     batch_idx = torch.arange(logits.size(0), device=device)
-    selected_logits = logits[batch_idx, target_indices]  # [B]
+    selected_logits = logits[batch_idx, target_indices]
     objective = selected_logits.sum()
 
-    # Backward
+    # Backward pass to get gradients of the objective with respect to the attention maps
     model.zero_grad(set_to_none=True)
-    if images.grad is not None:
-        images.grad.zero_()
-
     objective.backward()
 
-    # images.grad: [B, 3, H, W]
-    grads = images.grad  # [B, 3, H, W]
-    # Aggregate channels → [B, H, W]
-    heatmaps = grads.abs().mean(dim=1)
+    attention_grads = last_layer_attention.grad # Shape: [B, num_heads, N, N]
 
-    # Normalise per-image to [0, 1]
-    B = heatmaps.size(0)
-    flat = heatmaps.view(B, -1)
-    min_vals, _ = flat.min(dim=1, keepdim=True)
-    max_vals, _ = flat.max(dim=1, keepdim=True)
+    if attention_grads is None:
+         raise RuntimeError(
+            "Could not get gradients for attention maps. "
+            "Ensure that the attention computation chain has requires_grad=True "
+            "and model.backbone is not frozen."
+        )
+
+    # Average gradients across attention heads
+    # We are interested in the gradients of the CLS token's attention (row 0) to other patches (columns 1:)
+    # Shape after mean(dim=1) for attention_grads: [B, N, N]
+    averaged_attention_grads_cls_to_patches = attention_grads.mean(dim=1)[:, 0, 1:] # Shape: [B, N-1]
+
+    # Get the actual attention weights from the CLS token to other patches from the last layer.
+    # Shape after mean(dim=1) for last_layer_attention: [B, N, N]
+    averaged_attention_cls_to_patches = last_layer_attention.mean(dim=1)[:, 0, 1:] # Shape: [B, N-1]
+
+    # Compute the CAM: Element-wise multiply gradients by attentions and apply ReLU.
+    # This is a common practice in attention-based Grad-CAM for ViTs.
+    cam = averaged_attention_grads_cls_to_patches * averaged_attention_cls_to_patches
+    cam = F.relu(cam) # Shape: [B, N-1]
+
+    # Reshape the CAM to a 2D grid.
+    num_patches = cam.shape[1]
+    num_patches_side = int(math.sqrt(num_patches))
+    
+    if num_patches_side * num_patches_side != num_patches:
+        raise ValueError(f"Number of patches ({num_patches}) is not a perfect square for reshaping.")
+
+    cam = cam.view(-1, num_patches_side, num_patches_side)  # [B, H_patch, W_patch]
+
+    # Normalise per-image to [0, 1] for visualisation
+    B = cam.size(0)
+    flat = cam.view(B, -1)
+    
+    min_vals = flat.min(dim=1, keepdim=True)[0]
+    max_vals = flat.max(dim=1, keepdim=True)[0]
+    
     denom = (max_vals - min_vals).clamp(min=1e-8)
-    flat_norm = (flat - min_vals) / denom
-    heatmaps_norm = flat_norm.view_as(heatmaps)
+    heatmaps_norm = (flat - min_vals) / denom
+    heatmaps_norm = heatmaps_norm.view_as(cam)
 
     return heatmaps_norm.detach().cpu(), preds.detach().cpu()

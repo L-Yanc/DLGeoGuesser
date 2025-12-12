@@ -45,8 +45,7 @@ def train_one_epoch(model: nn.Module, loader: DataLoader, optim: torch.optim.Opt
             with torch.no_grad():
                 features = model.backbone(images)
 
-        if augment_embedding_noise > 0:
-            features += torch.randn_like(features) * augment_embedding_noise
+
 
         logits = model.head(features)["logits"]
         loss = loss_fn(logits, targets)

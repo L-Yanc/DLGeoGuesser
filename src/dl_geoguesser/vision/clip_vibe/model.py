@@ -47,20 +47,27 @@ class ClipImageBackbone(nn.Module):
         if cfg.backbone != "clip":
             raise ValueError(f"Unsupported backbone: {cfg.backbone}")
 
-        self.clip = CLIPVisionModel.from_pretrained(cfg.pretrained_name)
+        self.clip = CLIPVisionModel.from_pretrained(cfg.pretrained_name, attn_implementation="eager") # Add this argument
         self.embed_dim = self.clip.config.hidden_size
 
         if cfg.freeze_backbone:
             for p in self.clip.parameters():
                 p.requires_grad = False
 
-    def forward(self, images: torch.Tensor) -> torch.Tensor:
+    def forward(self, images: torch.Tensor) -> Dict[str, torch.Tensor]:
         """
         images: [B, 3, H, W] already normalised.
-        Returns: [B, embed_dim] image embeddings (pooler_output).
+        Returns a dict with:
+         - 'pooler_output': [B, embed_dim] image embeddings.
+         - 'last_hidden_state': [B, num_patches, embed_dim] patch embeddings.
+         - 'attentions': tuple of (B, num_heads, num_patches, num_patches) attention weights.
         """
-        outputs = self.clip(pixel_values=images)
-        return outputs.pooler_output
+        outputs = self.clip(pixel_values=images, output_attentions=True) # Add output_attentions=True
+        return {
+            "pooler_output": outputs.pooler_output,
+            "last_hidden_state": outputs.last_hidden_state,
+            "attentions": outputs.attentions, # Add attentions
+        }
 
 
 class ClassificationHead(nn.Module):
@@ -121,14 +128,19 @@ class ClipVibeModel(nn.Module):
           - 'logits'
           - 'backbone_features'
           - 'head_features'
+          - 'last_hidden_state'
+          - 'attentions'
         """
-        feats = self.backbone(images)
+        backbone_out = self.backbone(images)
+        feats = backbone_out["pooler_output"]
         head_out = self.head(feats)
 
         return {
             "logits": head_out["logits"],
             "backbone_features": feats,
             "head_features": head_out["head_features"],
+            "last_hidden_state": backbone_out["last_hidden_state"],
+            "attentions": backbone_out["attentions"],
         }
 
 
@@ -268,16 +280,29 @@ class ClipVibe:
         if target_class not in self.class2id:
             raise ValueError(f"Unknown class: {target_class}")
         target_class_id = self.class2id[target_class]
-        
+
+        # Grad-CAM requires gradients to flow through the backbone.
+        # We temporarily unfreeze it if it's frozen.
+        was_frozen = self.model_cfg.freeze_backbone
+        if was_frozen:
+            for p in self.model.backbone.clip.parameters():
+                p.requires_grad = True
+
         inputs = self.processor(images=image, return_tensors="pt")
-        
-        heatmaps, _ = gradcam.compute_gradcam(
-            model=self.model,
-            images=inputs["pixel_values"],
-            device=self.device,
-            target_class=target_class_id,
-        )
-        
+
+        try:
+            heatmaps, _ = gradcam.compute_gradcam(
+                model=self.model,
+                images=inputs["pixel_values"],
+                device=self.device,
+                target_class=target_class_id,
+            )
+        finally:
+            # Restore the frozen state
+            if was_frozen:
+                for p in self.model.backbone.clip.parameters():
+                    p.requires_grad = False
+
         heatmap = heatmaps[0]
         overlay = self._overlay_heatmap_on_image(image, heatmap)
         return overlay
