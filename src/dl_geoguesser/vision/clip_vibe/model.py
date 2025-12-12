@@ -2,12 +2,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Literal, Optional, Tuple
 
+import numpy as np
 import torch
 import torch.nn as nn
 from PIL import Image
 from transformers import CLIPImageProcessor, CLIPVisionModel
+
+from . import explainability
 
 
 @dataclass
@@ -47,7 +50,7 @@ class ClipImageBackbone(nn.Module):
         if cfg.backbone != "clip":
             raise ValueError(f"Unsupported backbone: {cfg.backbone}")
 
-        self.clip = CLIPVisionModel.from_pretrained(cfg.pretrained_name, attn_implementation="eager") # Add this argument
+        self.clip = CLIPVisionModel.from_pretrained(cfg.pretrained_name, attn_implementation="eager")
         self.embed_dim = self.clip.config.hidden_size
 
         if cfg.freeze_backbone:
@@ -62,11 +65,11 @@ class ClipImageBackbone(nn.Module):
          - 'last_hidden_state': [B, num_patches, embed_dim] patch embeddings.
          - 'attentions': tuple of (B, num_heads, num_patches, num_patches) attention weights.
         """
-        outputs = self.clip(pixel_values=images, output_attentions=True) # Add output_attentions=True
+        outputs = self.clip(pixel_values=images, output_attentions=True)
         return {
             "pooler_output": outputs.pooler_output,
             "last_hidden_state": outputs.last_hidden_state,
-            "attentions": outputs.attentions, # Add attentions
+            "attentions": outputs.attentions,
         }
 
 
@@ -157,7 +160,6 @@ def build_clip_vibe_model(
         cfg=model_cfg,
     )
 
-    # The device will be handled by the main training script or wrapper class
     return model, model_cfg
 
 
@@ -174,11 +176,6 @@ def get_device(cfg: Dict, cli_device: Optional[str] = None) -> torch.device:
     if desired in ["cuda", "mps"] and getattr(torch, desired).is_available():
         return torch.device(desired)
     return torch.device("cpu")
-
-
-import numpy as np
-
-from . import gradcam
 
 
 class ClipVibe:
@@ -223,7 +220,7 @@ class ClipVibe:
 
         scores = {self.id2class[i]: mean_probs[i].item() for i in range(len(mean_probs))}
         return scores
-    
+
     def _tensor_to_pil(self, image_tensor: torch.Tensor) -> Image.Image:
         """
         Convert a normalised image tensor [3, H, W] back to a visualisable PIL image.
@@ -260,8 +257,7 @@ class ClipVibe:
                 dtype=np.float32,
             ) / 255.0
 
-        # Apply colormap (simple jet-like mapping)
-        # shape: [H, W, 3]
+        # Apply colormap (jet-like mapping)
         cmap = np.zeros((H_img, W_img, 3), dtype=np.float32)
         cmap[..., 0] = np.clip(2.0 * heatmap_np - 0.5, 0.0, 1.0)  # red
         cmap[..., 1] = np.clip(2.0 * heatmap_np, 0.0, 1.0)        # green
@@ -273,36 +269,94 @@ class ClipVibe:
         blended = Image.blend(base_rgba, cmap_img, alpha=alpha)
         return blended.convert("RGB")
 
-    def generate_gradcam(self, image: Image.Image, target_class: str) -> Image.Image:
+    def explain(
+        self,
+        image: Image.Image,
+        target_class: str,
+        method: Literal["attention", "integrated_gradients"] = "integrated_gradients",
+        ig_steps: int = 50,
+        alpha: float = 0.5,
+    ) -> Image.Image:
         """
-        Generates a Grad-CAM overlay for a given image and target class.
+        Generate an explanation visualization for a prediction.
+
+        Args:
+            image: Input PIL image to explain.
+            target_class: The class name to explain (e.g., "forest", "beach").
+            method: Explanation method to use:
+                - "attention": Fast, shows CLIP's attention weighted by gradients.
+                               Good for debugging, less rigorous.
+                - "integrated_gradients": Slower, shows actual pixel importance.
+                                         Rigorous causal explanation.
+            ig_steps: Number of integration steps (only for integrated_gradients).
+                     More steps = more accurate but slower. Default 50 is good.
+            alpha: Overlay transparency (0.0 = original image, 1.0 = full heatmap).
+
+        Returns:
+            PIL Image with explanation heatmap overlaid.
+
+        Raises:
+            ValueError: If target_class is not in the model's vocabulary.
         """
         if target_class not in self.class2id:
-            raise ValueError(f"Unknown class: {target_class}")
-        target_class_id = self.class2id[target_class]
+            raise ValueError(
+                f"Unknown class: '{target_class}'. "
+                f"Available classes: {list(self.class2id.keys())}"
+            )
 
-        # Grad-CAM requires gradients to flow through the backbone.
-        # We temporarily unfreeze it if it's frozen.
+        target_class_id = self.class2id[target_class]
+        inputs = self.processor(images=image, return_tensors="pt")
+        pixel_values = inputs["pixel_values"].to(self.device)
+
+        # Temporarily unfreeze backbone if needed (for attention method)
         was_frozen = self.model_cfg.freeze_backbone
-        if was_frozen:
+        if method == "attention" and was_frozen:
             for p in self.model.backbone.clip.parameters():
                 p.requires_grad = True
 
-        inputs = self.processor(images=image, return_tensors="pt")
-
         try:
-            heatmaps, _ = gradcam.compute_gradcam(
-                model=self.model,
-                images=inputs["pixel_values"],
-                device=self.device,
-                target_class=target_class_id,
-            )
+            if method == "attention":
+                heatmaps, _ = explainability.compute_attention_saliency(
+                    model=self.model,
+                    images=pixel_values,
+                    device=self.device,
+                    target_class=target_class_id,
+                )
+                heatmap = heatmaps[0]  # [H_patch, W_patch]
+
+            elif method == "integrated_gradients":
+                attributions, _ = explainability.compute_integrated_gradients(
+                    model=self.model,
+                    images=pixel_values,
+                    device=self.device,
+                    target_class=target_class_id,
+                    steps=ig_steps,
+                )
+                heatmap = attributions[0]  # [H, W]
+
+            else:
+                raise ValueError(f"Unknown method: {method}")
+
         finally:
-            # Restore the frozen state
-            if was_frozen:
+            # Restore frozen state
+            if method == "attention" and was_frozen:
                 for p in self.model.backbone.clip.parameters():
                     p.requires_grad = False
 
-        heatmap = heatmaps[0]
-        overlay = self._overlay_heatmap_on_image(image, heatmap)
+        overlay = self._overlay_heatmap_on_image(image, heatmap, alpha=alpha)
         return overlay
+
+    # Deprecated: Keep for backward compatibility
+    def generate_gradcam(self, image: Image.Image, target_class: str) -> Image.Image:
+        """
+        [DEPRECATED] Use explain(method="attention") instead.
+
+        Generates an attention-based saliency map overlay.
+        """
+        import warnings
+        warnings.warn(
+            "generate_gradcam() is deprecated. Use explain(method='attention') instead.",
+            DeprecationWarning,
+            stacklevel=2
+        )
+        return self.explain(image, target_class, method="attention")

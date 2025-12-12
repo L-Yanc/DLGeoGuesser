@@ -131,3 +131,26 @@ if class_scores:
 else:
     print("Could not make a prediction.")
 ```
+
+## Explainability
+
+To understand why the model makes a certain prediction, you can use the `explain` command to generate a visual heatmap overlay on an image. This helps to highlight the regions of the image that were most influential for the model's decision.
+
+There are two available methods for generating explanations:
+
+1.  **`attention`**: This is a fast method that visualises the gradient-weighted attention from the CLIP model. It's useful for a quick look at what the model might be focusing on, but it is less rigorous because the underlying attention weights were not trained for the classification task.
+2.  **`integrated_gradients`**: This is a more rigorous, but slower, method that computes pixel-level attributions. It provides a more faithful explanation of which pixels caused the prediction. This method works correctly even if the CLIP backbone is frozen.
+
+### Command
+
+```bash
+python -m src.dl_geoguesser.vision.clip_vibe.main explain \
+  --weights "runs/clip_vibe/your_run_name/best.pt" \
+  --image "path/to/your/image.jpg" \
+  --class_name "forest" \
+  --output "explanation.jpg" \
+  --method "integrated_gradients" \
+  --device mps
+```
+
+This will save an image named `explanation.jpg` with the heatmap overlaid on the original image.
