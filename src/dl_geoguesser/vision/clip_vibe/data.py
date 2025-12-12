@@ -20,7 +20,7 @@ class DataConfig:
     root: Path
     metadata_csv: Path
     image_column: str
-    country_column: str
+    class_column: str
     content_column: str
     image_size: int
     num_workers: int
@@ -36,7 +36,7 @@ def build_data_config(cfg: Dict) -> DataConfig:
         root=Path(data_cfg["root"]),
         metadata_csv=Path(data_cfg["metadata_csv"]),
         image_column=data_cfg.get("image_column", "filename"),
-        country_column=data_cfg.get("country_column", "country"),
+        class_column=data_cfg.get("class_column", "class_name"),
         content_column=data_cfg.get("content_column", "content"),
         image_size=int(data_cfg.get("image_size", 224)),
         num_workers=int(data_cfg.get("num_workers", 4)),
@@ -49,12 +49,12 @@ def build_data_config(cfg: Dict) -> DataConfig:
 class ImageDataset(Dataset):
     """ Loads images and labels from a Pandas DataFrame for on-the-fly processing. """
 
-    def __init__(self, df: pd.DataFrame, image_root: Path, country2id: Dict[str, int], image_column: str, country_column: str, content_column: str, transform: Optional[transforms.Compose] = None):
+    def __init__(self, df: pd.DataFrame, image_root: Path, class2id: Dict[str, int], image_column: str, class_column: str, content_column: str, transform: Optional[transforms.Compose] = None):
         self.df = df
         self.image_root = image_root
-        self.country2id = country2id
+        self.class2id = class2id
         self.image_column = image_column
-        self.country_column = country_column
+        self.class_column = class_column
         self.content_column = content_column
         self.transform = transform
 
@@ -68,9 +68,9 @@ class ImageDataset(Dataset):
         if self.transform:
             img = self.transform(img)
 
-        country_id = self.country2id[row[self.country_column]]
+        class_id = self.class2id[row[self.class_column]]
         content = row[self.content_column]
-        return {"image": img, "country_id": torch.tensor(country_id, dtype=torch.long), "content": content}
+        return {"image": img, "class_id": torch.tensor(class_id, dtype=torch.long), "content": content}
 
 
 class EmbeddingDataset(Dataset):
@@ -91,12 +91,12 @@ class EmbeddingDataset(Dataset):
         if self.augment:
             noise = torch.randn_like(embedding) * self.noise_level
             embedding += noise
-        return {"embedding": embedding, "country_id": self.labels[idx], "content": self.contents[idx]}
+        return {"embedding": embedding, "class_id": self.labels[idx], "content": self.contents[idx]}
 
 
-def build_label_mapping(df: pd.DataFrame, country_col: str) -> Dict[str, int]:
-    countries = sorted(df[country_col].unique())
-    return {c: i for i, c in enumerate(countries)}
+def build_label_mapping(df: pd.DataFrame, class_col: str) -> Dict[str, int]:
+    classes = sorted(df[class_col].unique())
+    return {c: i for i, c in enumerate(classes)}
 
 
 def get_clip_transforms(model_name: str, image_size: int, augment: bool) -> transforms.Compose:
@@ -137,17 +137,17 @@ def create_image_datasets(cfg: Dict, use_image_aug: bool) -> Tuple[Dataset, Data
     if use_stratification:
         print("Using stratified dataset splitting.")
 
-        class_counts = df[data_cfg.country_column].value_counts()
+        class_counts = df[data_cfg.class_column].value_counts()
         classes_to_remove = class_counts[class_counts == 1].index
 
         if len(classes_to_remove) > 0:
             print(f"Stage 1 Cleaning: Removing {len(classes_to_remove)} classes with only 1 sample globally.")
-            df = df[~df[data_cfg.country_column].isin(classes_to_remove)].reset_index(drop=True)
+            df = df[~df[data_cfg.class_column].isin(classes_to_remove)].reset_index(drop=True)
 
         indices = np.arange(len(df))
 
-        country2id = build_label_mapping(df, data_cfg.country_column)
-        labels = df[data_cfg.country_column].map(country2id)
+        class2id = build_label_mapping(df, data_cfg.class_column)
+        labels = df[data_cfg.class_column].map(class2id)
 
         val_test_size = data_cfg.val_split_size + data_cfg.test_split_size
 
@@ -181,7 +181,7 @@ def create_image_datasets(cfg: Dict, use_image_aug: bool) -> Tuple[Dataset, Data
             val_indices, test_indices = cleaned_val_test_indices, []
     else:
         print("Using random (non-stratified) dataset splitting.")
-        country2id = build_label_mapping(df, data_cfg.country_column)
+        class2id = build_label_mapping(df, data_cfg.class_column)
         total_size = len(df)
         val_size, test_size = int(total_size * data_cfg.val_split_size), int(total_size * data_cfg.test_split_size)
         train_size = total_size - val_size - test_size
@@ -192,14 +192,14 @@ def create_image_datasets(cfg: Dict, use_image_aug: bool) -> Tuple[Dataset, Data
     train_transform = get_clip_transforms(model_name, data_cfg.image_size, augment=use_image_aug)
     eval_transform = get_clip_transforms(model_name, data_cfg.image_size, augment=False)
 
-    full_dataset_train = ImageDataset(df, data_cfg.root, country2id, data_cfg.image_column, data_cfg.country_column, data_cfg.content_column, train_transform)
-    full_dataset_eval = ImageDataset(df, data_cfg.root, country2id, data_cfg.image_column, data_cfg.country_column, data_cfg.content_column, eval_transform)
+    full_dataset_train = ImageDataset(df, data_cfg.root, class2id, data_cfg.image_column, data_cfg.class_column, data_cfg.content_column, train_transform)
+    full_dataset_eval = ImageDataset(df, data_cfg.root, class2id, data_cfg.image_column, data_cfg.class_column, data_cfg.content_column, eval_transform)
 
     train_ds = torch.utils.data.Subset(full_dataset_train, train_indices)
     val_ds = torch.utils.data.Subset(full_dataset_eval, val_indices)
     test_ds = torch.utils.data.Subset(full_dataset_eval, test_indices)
 
-    return train_ds, val_ds, test_ds, country2id
+    return train_ds, val_ds, test_ds, class2id
 
 
 def create_dataloaders(
@@ -231,13 +231,13 @@ def create_dataloaders(
         return train_loader, val_loader, test_loader, class2id
     else:
         use_image_aug = 'image' in augmentations or 'both' in augmentations
-        train_ds, val_ds, test_ds, country2id = create_image_datasets(cfg, use_image_aug)
+        train_ds, val_ds, test_ds, class2id = create_image_datasets(cfg, use_image_aug)
 
     sampler = None
     shuffle = True
     if cfg.get("training", {}).get("use_weighted_sampling", False) and not (precomputed_path and precomputed_path.exists()):
         print("Using weighted random sampler for training.")
-        train_labels = [train_ds.dataset.df.iloc[i][data_cfg.country_column] for i in train_ds.indices]
+        train_labels = [train_ds.dataset.df.iloc[i][data_cfg.class_column] for i in train_ds.indices]
         class_counts = pd.Series(train_labels).value_counts().to_dict()
         weights = [1.0 / class_counts[label] for label in train_labels]
         sampler = WeightedRandomSampler(torch.DoubleTensor(weights), len(weights))
@@ -247,4 +247,4 @@ def create_dataloaders(
     val_loader = DataLoader(val_ds, batch_size=data_cfg.batch_size, shuffle=False, num_workers=data_cfg.num_workers, pin_memory=True)
     test_loader = DataLoader(test_ds, batch_size=data_cfg.batch_size, shuffle=False, num_workers=data_cfg.num_workers, pin_memory=True)
 
-    return train_loader, val_loader, test_loader, country2id
+    return train_loader, val_loader, test_loader, class2id

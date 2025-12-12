@@ -20,7 +20,7 @@ model:
 
 # === TRAINING SETTINGS ===
 training:
-  batch_size: 1
+  batch_size: 4
   num_epochs: 20
   lr_head: 0.0001
   embedding_noise_level: 0
@@ -28,6 +28,8 @@ training:
   device: "mps" # Changed from cuda for local testing, user can change back
   use_weighted_sampling: false
   use_stratification: true
+  lr_scheduler_step_size: 5
+  lr_scheduler_gamma: 0.1
 
 # === EVALUATION SETTINGS ===
 eval:

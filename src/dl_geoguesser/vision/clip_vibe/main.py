@@ -15,9 +15,10 @@ import yaml
 from sklearn.metrics import classification_report, confusion_matrix
 from torch.utils.data import DataLoader
 from tqdm import tqdm
+from PIL import Image
 
 from .data import create_dataloaders
-from .model import ClipVibeModel, build_clip_vibe_model, get_device
+from .model import ClipVibe, ClipVibeModel, build_clip_vibe_model, get_device
 
 
 def accuracy_from_logits(logits: torch.Tensor, targets: torch.Tensor) -> float:
@@ -34,7 +35,7 @@ def train_one_epoch(model: nn.Module, loader: DataLoader, optim: torch.optim.Opt
     loop = tqdm(loader, desc=f"Train Epoch {epoch+1}/{num_epochs}", leave=False)
 
     for batch in loop:
-        targets = batch["country_id"].to(dev)
+        targets = batch["class_id"].to(dev)
 
         if use_embeddings:
             features = batch["embedding"].to(dev)
@@ -67,7 +68,7 @@ def evaluate(model: nn.Module, loader: DataLoader, dev: torch.device, use_embedd
     loop = tqdm(loader, desc="Evaluating", leave=False)
     with torch.no_grad():
         for batch in loop:
-            targets = batch["country_id"].to(dev)
+            targets = batch["class_id"].to(dev)
             if use_embeddings:
                 features = batch["embedding"].to(dev)
             else:
@@ -96,7 +97,7 @@ def precompute_embeddings(model: ClipVibeModel, cfg: Dict, device: torch.device,
             for batch in tqdm(loader, desc=f"Computing {split_name} embeddings"):
                 embeds = model.backbone(batch["image"].to(device))
                 all_embeds.append(embeds.cpu())
-                all_labels.append(batch["country_id"].cpu())
+                all_labels.append(batch["class_id"].cpu())
                 all_contents.extend(batch["content"])
 
             output[f'{split_name}_embeds'] = torch.cat(all_embeds, dim=0)
@@ -149,6 +150,7 @@ def train(cfg_path: str, name: str, device_str: Optional[str], weights: Optional
     model, _ = build_clip_vibe_model(cfg, num_classes=len(class2id))
     model.to(device)
     optimizer = torch.optim.AdamW([p for p in model.parameters() if p.requires_grad], lr=float(cfg["training"]["lr_head"]))
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=cfg["training"]["lr_scheduler_step_size"], gamma=cfg["training"]["lr_scheduler_gamma"])
 
     # --- Phase 3: Load State ---
     if resume:
@@ -184,6 +186,8 @@ def train(cfg_path: str, name: str, device_str: Optional[str], weights: Optional
             print(f"  -> New best val acc: {best_val_acc:.3f}")
             save_checkpoint(model, optimizer, epoch, best_val_acc, cfg, class2id, save_dir, name="best.pt")
         save_checkpoint(model, optimizer, epoch, best_val_acc, cfg, class2id, save_dir, name="last.pt")
+        
+        scheduler.step()
 
     print("\nTraining complete. Final test set evaluation...")
     test_stats = evaluate(model, test_loader, device, precompute)
@@ -221,11 +225,10 @@ def evaluate_detailed(weights_path: str, split: str, device_str: Optional[str]):
     loader = val_loader if split == 'val' else test_loader
 
     # --- Inference Loop ---
-    all_preds, all_targets, all_contents = [], [], []
+    all_preds, all_targets = [], []
     with torch.no_grad():
         for batch in tqdm(loader, desc=f"Evaluating on '{split}' split"):
-            targets = batch["country_id"]
-            contents = batch["content"]
+            targets = batch["class_id"]
 
             if use_embeddings:
                 features = batch["embedding"].to(device)
@@ -237,7 +240,6 @@ def evaluate_detailed(weights_path: str, split: str, device_str: Optional[str]):
 
             all_preds.extend(preds.cpu().numpy())
             all_targets.extend(targets.cpu().numpy())
-            all_contents.extend(contents)
 
     # --- Metrics and Reporting ---
     print("\n" + "="*80)
@@ -249,35 +251,6 @@ def evaluate_detailed(weights_path: str, split: str, device_str: Optional[str]):
     report = classification_report(all_targets, all_preds, labels=all_class_indices, target_names=all_class_names, zero_division=0)
     print(report)
 
-    # --- Per-Content-Type Accuracy ---
-    print("\n" + "="*80)
-    print(f"Per-Content-Type Accuracy for '{split}' split")
-    print("="*80)
-    results_df = pd.DataFrame({'true': all_targets, 'pred': all_preds, 'content': all_contents})
-    results_df['correct'] = results_df['true'] == results_df['pred']
-
-    content_accuracy = results_df.groupby('content')['correct'].mean().sort_values(ascending=False)
-
-    for content_type, acc in content_accuracy.items():
-        support = len(results_df[results_df['content'] == content_type])
-        print(f"- {content_type:<30} | Accuracy: {acc:.3f} | Support: {support}")
-
-    # --- Confusion Matrix Plotting ---
-    print("\nGenerating confusion matrix plot...")
-    cm = confusion_matrix(all_targets, all_preds, labels=all_class_indices)
-    plt.figure(figsize=(20, 20))
-    sns.heatmap(cm, annot=False, xticklabels=all_class_names, yticklabels=all_class_names, cmap='Blues')
-    plt.xlabel("Predicted")
-    plt.ylabel("True")
-    plt.title(f"Confusion Matrix - '{split}' Split")
-
-    plot_path = run_dir / f"confusion_matrix_{split}.png"
-    plt.savefig(plot_path, dpi=300, bbox_inches='tight')
-    print(f"Confusion matrix saved to: {plot_path}")
-
-
-from .model import ClipVibe, ClipVibeModel, build_clip_vibe_model, get_device
-from PIL import Image
 
 def generate_gradcam_image(weights_path: str, image_path: str, class_name: str, output_path: str, device_str: Optional[str]):
     """
