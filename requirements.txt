@@ -28,3 +28,10 @@ scikit-learn
 pillow
 pyyaml
 transformers
+
+# API clients
+google-generativeai
+python-dotenv
+
+# Web framework
+flask

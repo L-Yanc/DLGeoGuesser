@@ -26,10 +26,12 @@ from dl_geoguesser.vision.yolo_detector.model import YOLOv8Detector
 # Optional OCR support
 try:
     from dl_geoguesser.vision.ocr_pipeline.model import MultiLangOCR
+    from dl_geoguesser.vision.ocr_pipeline.main import process_yolo_predictions
     OCR_AVAILABLE = True
 except ImportError:
     OCR_AVAILABLE = False
     MultiLangOCR = None
+    process_yolo_predictions = None
 
 
 @dataclass
@@ -199,7 +201,7 @@ class GeoLocationPipeline:
     
     def _run_ocr(self, image: Image.Image, detections: Dict) -> Dict[str, Any]:
         """Run OCR on text-containing regions detected by YOLO."""
-        if not self._ocr:
+        if not self._ocr or not process_yolo_predictions:
             print("  OCR: No OCR model available")
             return {}
         
@@ -210,75 +212,31 @@ class GeoLocationPipeline:
         # Convert PIL to numpy
         image_np = np.array(image)
         
-        # Filter detections for text-containing classes
-        text_regions = []
-        for class_name, instances in detections.items():
-            if self._ocr.class_has_text(class_name):
-                text_regions.extend(instances)
+        # Use the proper process_yolo_predictions function from ocr_pipeline
+        print(f"  OCR: Processing YOLO detections with process_yolo_predictions")
+        ocr_results = process_yolo_predictions(detections, image_np)
         
-        print(f"  OCR: Found {len(text_regions)} text regions")
+        print(f"  OCR: Found {len(ocr_results)} text regions with content")
         
-        if not text_regions:
-            # No text regions detected by YOLO - skip OCR to save time
-            # Processing full image is slow and rarely finds text if YOLO didn't detect any
-            print("  OCR: No text regions detected, skipping full image OCR")
-            return {
-                "raw_results": {},
-                "extracted_text": "",
-                "detected_languages": [],
-            }
-        else:
-            # Process each text region
-            print(f"  OCR: Processing {len(text_regions)} regions")
-            all_results = {}
-            for idx, region in enumerate(text_regions):
-                x1, y1, x2, y2 = region['bbox_crop']
-                crop = image_np[y1:y2, x1:x2]
-                region_results = self._ocr.extract_text(crop)
-                print(f"  OCR: Region {idx} results type: {type(region_results)}")
-                all_results[f"region_{idx}_{region.get('class', 'unknown')}"] = region_results
-        
-        # Extract and aggregate text
-        # all_results structure: {region_name: {lang_family: [detections]}}
-        print(f"  OCR: all_results type: {type(all_results)}")
-        print(f"  OCR: all_results keys: {list(all_results.keys())}")
-        
+        # Extract text and languages from results
+        # ocr_results structure: {(x1,y1,x2,y2): {"text": str, "languages": [{"lang": str, "confidence": float}]}}
         extracted_texts = []
         detected_langs = set()
         
-        for region_key, lang_results in all_results.items():
-            print(f"  OCR: Processing region '{region_key}', type: {type(lang_results)}")
-            # lang_results should be a dict: {lang_family: [detections]}
-            if isinstance(lang_results, dict):
-                for lang, results in lang_results.items():
-                    if isinstance(results, list):
-                        for detection in results:
-                            if len(detection) >= 2:
-                                text = detection[1]
-                                if text.strip():
-                                    extracted_texts.append(text)
-                                    try:
-                                        lang_code = self._ocr.detect_language(text)
-                                        if lang_code != "unknown":
-                                            detected_langs.add(lang_code)
-                                    except Exception:
-                                        pass  # Language detection failed, skip
-            # Handle case where lang_results is directly a list (fallback)
-            elif isinstance(lang_results, list):
-                for detection in lang_results:
-                    if len(detection) >= 2:
-                        text = detection[1]
-                        if text.strip():
-                            extracted_texts.append(text)
-                            try:
-                                lang_code = self._ocr.detect_language(text)
-                                if lang_code != "unknown":
-                                    detected_langs.add(lang_code)
-                            except Exception:
-                                pass  # Language detection failed, skip
+        for bbox, result in ocr_results.items():
+            text = result.get("text", "")
+            if text.strip():
+                extracted_texts.append(text)
+                print(f"  OCR: Found text: '{text[:50]}...'")
+            
+            # Get language codes
+            for lang_info in result.get("languages", []):
+                lang_code = lang_info.get("lang")
+                if lang_code:
+                    detected_langs.add(lang_code)
         
         return {
-            "raw_results": all_results,
+            "raw_results": ocr_results,
             "extracted_text": " ".join(extracted_texts),
             "detected_languages": list(detected_langs),
         }

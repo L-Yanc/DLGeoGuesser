@@ -13,6 +13,10 @@ from pathlib import Path
 from flask import Flask, render_template, request, jsonify
 from PIL import Image
 
+# Load environment variables from .env file
+from dotenv import load_dotenv
+load_dotenv()
+
 # Add parent directory to path to import pipeline
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -24,6 +28,7 @@ from src.dl_geoguesser.vision.pipeline import (
 )
 from src.dl_geoguesser.language.nanochat_model import NanoChatModel
 from src.dl_geoguesser.language.vla_client import VLAInferenceClient
+from src.dl_geoguesser.language.gemini_client import GeminiClient, GEMINI_AVAILABLE
 
 app = Flask(__name__)
 
@@ -42,6 +47,13 @@ chat_models_ready = False
 # VLA client (remote inference)
 vla_client = None
 VLA_SERVER_URL = os.environ.get("VLA_SERVER_URL", "http://localhost:8000")
+
+# Gemini clients (SOTA)
+gemini_clients = {
+    'gemini_3_pro': None,      # Gemini 3 Pro
+    'gemini_2.5_flash': None,  # Gemini 2.5 Flash
+}
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
 # Store conversation history per session (simple in-memory storage)
 # In production, you'd use Redis or a database
@@ -146,6 +158,45 @@ def initialize_vla_client():
         return None
 
 
+def initialize_gemini_client(model_type='gemini_2_flash'):
+    """Initialize Gemini client for specific model."""
+    global gemini_clients
+    
+    if not GEMINI_AVAILABLE:
+        print("⚠️  Gemini not available: google-generativeai not installed")
+        print("   Install with: pip install google-generativeai")
+        return None
+    
+    if not GEMINI_API_KEY:
+        print("⚠️  Gemini API key not set")
+        print("   Set GEMINI_API_KEY in .env file or environment variable")
+        print("   Get your API key from: https://makersuite.google.com/app/apikey")
+        return None
+    
+    # Check if client already exists
+    if gemini_clients.get(model_type) is not None:
+        return gemini_clients[model_type]
+    
+    # Map model types to Gemini model names
+    model_map = {
+        'gemini_3_pro': 'gemini-3-pro-preview',
+        'gemini_2.5_flash': 'gemini-2.5-flash',
+    }
+    
+    model_name = model_map.get(model_type, 'gemini-3-pro-preview')
+    
+    try:
+        print(f"🤖 Initializing Gemini client ({model_name})...")
+        gemini_clients[model_type] = GeminiClient(
+            api_key=GEMINI_API_KEY,
+            model_name=model_name
+        )
+        return gemini_clients[model_type]
+    except Exception as e:
+        print(f"⚠️  Failed to initialize Gemini: {e}")
+        return None
+
+
 @app.route('/')
 def index():
     """Render the game show interface."""
@@ -186,12 +237,51 @@ def generate_initial_analysis(result, model_type='self_trained_sft'):
     
     Args:
         result: PipelineResult from image analysis
-        model_type: Which LLM to use for analysis ('vla_finetuned' or nanochat models)
+        model_type: Which LLM to use for analysis
         
     Returns:
         Dict with LLM's decision and reasoning
     """
     try:
+        # Check if using Gemini
+        if model_type in ['gemini_3_pro', 'gemini_2.5_flash']:
+            client = initialize_gemini_client(model_type)
+            if client is None:
+                print(f"⚠️  Gemini client not available")
+                return None
+            
+            # Build vision data structure for Gemini
+            vision_data = {
+                "country": result.top_country,
+                "country_confidence": result.top_country_confidence,
+                "vibe_top": result.top_vibe,
+                "vibe_distribution": dict(sorted(
+                    result.vibe_scores.items(),
+                    key=lambda x: x[1],
+                    reverse=True
+                )[:5]),
+                "evidence": {
+                    "top_contents": list(result.detections.keys()),
+                    "detected_text": result.extracted_text if result.extracted_text else None,
+                    "detected_languages": result.detected_languages if result.detected_languages else None,
+                }
+            }
+            
+            print(f"🤖 Generating initial analysis with Gemini...")
+            
+            response = client.generate_explanation(
+                vision_data=vision_data,
+                max_tokens=2048,
+                temperature=0.7
+            )
+            
+            print(f"✅ Gemini analysis: {response[:100]}...")
+            
+            return {
+                'analysis': response.strip(),
+                'model': model_type
+            }
+        
         # Check if using VLA fine-tuned model
         if model_type == 'vla_finetuned':
             client = initialize_vla_client()
@@ -248,11 +338,14 @@ def generate_initial_analysis(result, model_type='self_trained_sft'):
         prompt = f"""Analyze this location data and provide your top 2 guesses:
 
 Data:
-- Country predictions: {top_3_countries}
+- Unreliable Country predictions: {top_3_countries}
 - Scene: {result.top_vibe}
 - Objects: {', '.join(list(result.detections.keys())) if result.detections else 'none'}
 - Text: {result.extracted_text if result.extracted_text else 'none'}
 
+[Note on Text: ] A lot of the text is going to be jumbled around and incorrect, focus a LOT on the words that seem correct. Sometimes the predicted country might be quite incorrect.
+
+Please analyze all of the data available with similar weighting and make a holistic decision, it is likely that if used on its own each metric is unreliable.
 Respond in this format:
 1st: [location] - [reason]
 2nd: [location] - [reason]
@@ -296,13 +389,18 @@ def chat_status():
         except:
             pass
     
+    # Check Gemini availability
+    gemini_available = GEMINI_AVAILABLE and bool(GEMINI_API_KEY)
+    
     return jsonify({
-        'ready': chat_models_ready or vla_available,
+        'ready': chat_models_ready or vla_available or gemini_available,
         'models': {
             'self_trained_base': chat_models['self_trained_base'] is not None,
             'self_trained_mid': chat_models['self_trained_mid'] is not None,
             'self_trained_sft': chat_models['self_trained_sft'] is not None,
             'vla_finetuned': vla_available,
+            'gemini_3_pro': gemini_available,
+            'gemini_2.5_flash': gemini_available,
         }
     })
 
@@ -316,11 +414,79 @@ def chat_generate():
         model_type = data.get('model', 'self_trained_sft')
         session_id = data.get('session_id', 'default')
         context = data.get('context', {})  # Analysis results context
-        max_tokens = data.get('max_tokens', 150)
+        max_tokens = data.get('max_tokens', 2048)
         temperature = data.get('temperature', 0.8)
         
         if not user_message:
             return jsonify({'error': 'No message provided'}), 400
+        
+        # Handle Gemini models
+        if model_type in ['gemini_3_pro', 'gemini_2.5_flash']:
+            client = initialize_gemini_client(model_type)
+            if client is None:
+                return jsonify({
+                    'error': 'Gemini not available',
+                    'suggestion': 'Set GEMINI_API_KEY in .env file'
+                }), 503
+            
+            # Get or create conversation history
+            if session_id not in conversation_history:
+                conversation_history[session_id] = []
+            history = conversation_history[session_id]
+            
+            # Build context-aware prompt
+            prompt_parts = []
+            
+            # Add initial analysis if available
+            if session_id in llm_initial_analysis:
+                initial = llm_initial_analysis[session_id]
+                prompt_parts.append(f"Initial Analysis:\n{initial['analysis']}\n")
+            
+            # Add context
+            if context:
+                prompt_parts.append("Image Analysis:")
+                if context.get('country'):
+                    prompt_parts.append(f"Location: {context['country']['top']} ({context['country']['confidence']}%)")
+                if context.get('vibe'):
+                    prompt_parts.append(f"Scene: {context['vibe']['top']}")
+                if context.get('ocr') and context['ocr'].get('text_raw'):
+                    prompt_parts.append(f"Text: {context['ocr']['text_raw']}")
+                prompt_parts.append("")
+            
+            # Add recent history
+            recent_history = history[-4:] if len(history) > 4 else history
+            if recent_history:
+                for msg in recent_history:
+                    role = "User" if msg['role'] == 'user' else "Assistant"
+                    prompt_parts.append(f"{role}: {msg['content']}")
+            
+            # Add current message
+            prompt_parts.append(f"User: {user_message}")
+            prompt_parts.append("\nAssistant:")
+            
+            full_prompt = "\n".join(prompt_parts)
+            
+            print(f"💬 Generating with Gemini...")
+            
+            response_text = client.generate(
+                prompt=full_prompt,
+                max_tokens=max_tokens,
+                temperature=temperature
+            )
+            
+            # Store in history
+            history.append({'role': 'user', 'content': user_message})
+            history.append({'role': 'assistant', 'content': response_text})
+            
+            if len(history) > 20:
+                conversation_history[session_id] = history[-20:]
+            
+            return jsonify({
+                'success': True,
+                'response': response_text,
+                'model': model_type,
+                'session_id': session_id
+            })
         
         # Handle VLA fine-tuned model
         if model_type == 'vla_finetuned':
@@ -665,6 +831,23 @@ def analyze():
 if __name__ == '__main__':
     # Initialize pipeline before starting server
     initialize_pipeline()
+    
+    # Initialize chat models (optional, loads on first use if not done here)
+    print("\n💬 Initializing chat models...")
+    initialize_chat_models()
+    
+    # Check Gemini availability
+    if GEMINI_AVAILABLE and GEMINI_API_KEY:
+        print("✅ Gemini API key found - Gemini models available")
+    else:
+        if not GEMINI_AVAILABLE:
+            print("⚠️  Gemini not available: install with 'pip install google-generativeai'")
+        elif not GEMINI_API_KEY:
+            print("⚠️  Gemini API key not set in .env file")
+    
+    # Initialize VLA client
+    print(f"🌐 VLA server URL: {VLA_SERVER_URL}")
+    initialize_vla_client()
     
     print("\n" + "=" * 60)
     print("🎮 GEOGUESSER GAME SHOW 🎮")

@@ -34,17 +34,17 @@
                 <div class="model-selection-section">
                     <label class="model-select-label">AI Model:</label>
                     <select id="llm-model-select" class="model-select">
+                        <optgroup label="State-of-the-Art">
+                            <option value="gemini_3_pro" selected>Gemini 3 Pro (Latest & Most Capable)</option>
+                            <option value="gemini_2.5_flash">Gemini 2.5 Flash (Fast & Smart)</option>
+                        </optgroup>
+                        <optgroup label="VLA (Remote)">
+                            <option value="vla_finetuned">LLaMA 3.1 8B (GeoGuesser Fine-tuned)</option>
+                        </optgroup>
                         <optgroup label="NanoChat (Local)">
                             <option value="self_trained_base">Base (Pre-trained)</option>
                             <option value="self_trained_mid">Mid (Checkpoint)</option>
                             <option value="self_trained_sft">SFT (Fine-tuned)</option>
-                        </optgroup>
-                        <optgroup label="VLA (Remote)">
-                            <option value="vla_finetuned" selected>LLaMA 3.1 8B (GeoGuesser Fine-tuned)</option>
-                        </optgroup>
-                        <optgroup label="State-of-the-Art">
-                            <option value="sota_gpt4" disabled>GPT-4 (Coming Soon)</option>
-                            <option value="sota_claude" disabled>Claude (Coming Soon)</option>
                         </optgroup>
                     </select>
                 </div>

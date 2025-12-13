@@ -17,6 +17,9 @@ venv/
 env/
 .env/
 
+# Environment variables
+.env
+
 inspiration/
 ui/static/results/result_*
 test_images/Screenshot*
