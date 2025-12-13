@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🌍 GEOGUESSER GAME SHOW 🌍</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="scanlines"></div>
+    
+    <!-- Header -->
+    <header class="game-header">
+        <div class="neon-border">
+            <h1 class="game-title">
+                <span class="letter">G</span><span class="letter">E</span><span class="letter">O</span>
+                <span class="letter">G</span><span class="letter">U</span><span class="letter">E</span><span class="letter">S</span><span class="letter">S</span><span class="letter">E</span><span class="letter">R</span>
+            </h1>
+            <p class="subtitle">🎬 THE ULTIMATE LOCATION CHALLENGE 🎬</p>
+        </div>
+    </header>
+
+    <!-- Main Game Area -->
+    <div class="game-container">
+        
+        <!-- Left Panel: Upload/Camera -->
+        <div class="panel left-panel">
+            <div class="panel-header">
+                <h2>📸 CAPTURE</h2>
+            </div>
+            <div class="panel-content">
+                
+                <!-- Model Selection -->
+                <div class="model-selection-section">
+                    <label class="model-select-label">AI Model:</label>
+                    <select id="llm-model-select" class="model-select">
+                        <optgroup label="Self-Trained">
+                            <option value="self_trained_base">Base (Pre-trained)</option>
+                            <option value="self_trained_mid">Mid (Checkpoint)</option>
+                            <option value="self_trained_sft" selected>SFT (Fine-tuned)</option>
+                        </optgroup>
+                        <optgroup label="Fine-Tuned">
+                            <option value="finetuned_chat" disabled>Chat Optimized (Coming Soon)</option>
+                        </optgroup>
+                        <optgroup label="State-of-the-Art">
+                            <option value="sota_gpt4" disabled>GPT-4 (Coming Soon)</option>
+                            <option value="sota_claude" disabled>Claude (Coming Soon)</option>
+                        </optgroup>
+                    </select>
+                </div>
+
+                <!-- Upload Button -->
+                <div class="upload-section">
+                    <label for="file-upload" class="upload-btn">
+                        <span class="btn-icon">📁</span>
+                        <span class="btn-text">UPLOAD IMAGE</span>
+                    </label>
+                    <input type="file" id="file-upload" accept="image/*" style="display: none;">
+                </div>
+
+                <!-- Camera Button -->
+                <div class="camera-section">
+                    <button id="camera-btn" class="camera-btn">
+                        <span class="btn-icon">📷</span>
+                        <span class="btn-text">USE CAMERA</span>
+                    </button>
+                </div>
+
+                <!-- Video Preview (hidden initially) -->
+                <div id="camera-preview" class="camera-preview" style="display: none;">
+                    <video id="video" autoplay playsinline></video>
+                    <canvas id="canvas" style="display: none;"></canvas>
+                    <button id="capture-btn" class="capture-btn">📸 SNAP!</button>
+                    <button id="close-camera-btn" class="close-btn">✖ CLOSE</button>
+                </div>
+
+                <!-- Image Preview -->
+                <div id="image-preview" class="image-preview" style="display: none;">
+                    <img id="preview-img" src="" alt="Preview">
+                    <button id="analyze-btn" class="analyze-btn">
+                        🔍 ANALYZE NOW!
+                    </button>
+                </div>
+
+                <!-- Status Indicator -->
+                <div class="status-section">
+                    <div id="status-light" class="status-light"></div>
+                    <p id="status-text" class="status-text">READY</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Center Panel: Results Display -->
+        <div class="panel center-panel">
+            <div class="panel-header">
+                <h2>🎯 RESULTS</h2>
+            </div>
+            <div class="panel-content">
+                
+                <!-- Processing State -->
+                <div id="processing-state" class="processing-state" style="display: none;">
+                    <div class="spinner"></div>
+                    <p class="processing-text">ANALYZING...</p>
+                    <div class="progress-bar">
+                        <div class="progress-fill"></div>
+                    </div>
+                </div>
+
+                <!-- Results State -->
+                <div id="results-state" class="results-state" style="display: none;">
+                    
+                    <!-- 1. AI Analysis -->
+                    <div id="llm-analysis-box" class="result-box llm-analysis-box" style="display: none;">
+                        <h3>🤖 AI ANALYSIS</h3>
+                        <div id="llm-analysis-content" class="llm-analysis-content"></div>
+                        <div id="llm-model-badge" class="llm-model-badge"></div>
+                    </div>
+
+                    <!-- 2. Image Visualization -->
+                    <div class="visualization" id="visualization-container">
+                        <img id="result-viz" src="" alt="Visualization" style="display: none;">
+                        <p id="viz-loading" style="display: none; color: var(--vibrant-blue); font-weight: 600;">
+                            Loading visualization...
+                        </p>
+                    </div>
+
+                    <!-- 3. Location -->
+                    <div class="result-box country-box">
+                        <h3>🌍 LOCATION</h3>
+                        <div class="result-main">
+                            <span id="country-name" class="result-value">---</span>
+                            <span id="country-confidence" class="confidence-badge">0%</span>
+                        </div>
+                        <div id="country-top5" class="top5-list"></div>
+                    </div>
+
+                    <!-- 4. Vibe -->
+                    <div class="result-box vibe-box">
+                        <h3>🎨 VIBE</h3>
+                        <div class="result-main">
+                            <span id="vibe-name" class="result-value">---</span>
+                            <span id="vibe-confidence" class="confidence-badge">0%</span>
+                        </div>
+                        <div id="vibe-top5" class="top5-list"></div>
+                    </div>
+
+                    <!-- 5. OCR Results -->
+                    <div id="ocr-box" class="result-box ocr-box" style="display: none;">
+                        <h3>📝 TEXT DETECTED</h3>
+                        <div id="ocr-content" class="ocr-content">
+                            <div id="ocr-text" class="ocr-text"></div>
+                            <div id="ocr-languages" class="ocr-languages"></div>
+                        </div>
+                    </div>
+
+                    <!-- 6. Detected Objects -->
+                    <div class="result-box detections-box">
+                        <h3>🔍 DETECTED OBJECTS</h3>
+                        <div id="detections-list" class="detections-list">
+                            <p>No objects detected</p>
+                        </div>
+                    </div>
+
+                    <!-- Processing Time -->
+                    <div class="processing-time">
+                        ⏱️ Processed in <span id="processing-time">0</span>s
+                    </div>
+                </div>
+
+                <!-- Idle State -->
+                <div id="idle-state" class="idle-state">
+                    <div class="idle-animation">
+                        <div class="globe">🌍</div>
+                        <p class="idle-text">Upload an image or use your camera to begin!</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Right Panel: Answer Buzzer & Chat -->
+        <div class="panel right-panel">
+            <div class="panel-header">
+                <h2>💡 BUZZER</h2>
+            </div>
+            <div class="panel-content buzzer-content">
+                <div id="buzzer" class="buzzer">
+                    <div class="buzzer-light"></div>
+                    <div class="buzzer-base">
+                        <span class="buzzer-label">READY</span>
+                    </div>
+                </div>
+                <p class="buzzer-hint">The buzzer glows when analysis is complete!</p>
+            </div>
+            
+            <!-- Chat Interface -->
+            <div class="panel-header" style="margin-top: 1rem;">
+                <h2>💬 AI CHAT</h2>
+            </div>
+            <div class="panel-content chat-content">
+                <!-- Chat Header -->
+                <div class="chat-header-row">
+                    <div class="chat-model-info" id="chat-model-info">
+                        Using: <span id="current-chat-model">SFT Model</span>
+                    </div>
+                    <button id="clear-chat-btn" class="clear-chat-btn" title="Clear conversation">
+                        🗑️
+                    </button>
+                </div>
+                
+                <!-- Chat Messages -->
+                <div id="chat-messages" class="chat-messages">
+                    <div class="chat-welcome">
+                        Ask me about the location! 🌍
+                    </div>
+                </div>
+                
+                <!-- Chat Input -->
+                <div class="chat-input-container">
+                    <input type="text" id="chat-input" class="chat-input" 
+                           placeholder="Ask about the location..." 
+                           disabled>
+                    <button id="chat-send" class="chat-send-btn" disabled>
+                        ➤
+                    </button>
+                </div>
+                
+                <p class="chat-hint">Chat is enabled after analyzing an image</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <footer class="game-footer">
+        <p>🎮 Powered by AI Vision Models 🎮</p>
+        <p class="tech-stack">CLIP • YOLO • DINO</p>
+    </footer>
+
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+</html>

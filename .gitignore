@@ -17,3 +17,9 @@ venv/
 env/
 .env/
 
+inspiration/
+ui/static/results/result_*
+test_images/Screenshot*
+
+# Ignore duplicate ui/ui directory if it gets created
+ui/ui/

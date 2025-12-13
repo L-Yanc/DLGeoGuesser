@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Debug Test</title>
+    <style>
+        body { font-family: monospace; padding: 20px; }
+        .section { margin: 20px 0; padding: 15px; border: 2px solid #333; }
+        pre { background: #f0f0f0; padding: 10px; overflow-x: auto; }
+        button { padding: 10px 20px; margin: 5px; font-size: 14px; }
+    </style>
+</head>
+<body>
+    <h1>UI Backend Debug Test</h1>
+    
+    <div class="section">
+        <h2>1. Check Status</h2>
+        <button onclick="checkStatus()">Check Pipeline Status</button>
+        <pre id="status-output"></pre>
+    </div>
+    
+    <div class="section">
+        <h2>2. Check Visualization Directory</h2>
+        <button onclick="checkViz()">Check Viz Dir</button>
+        <pre id="viz-output"></pre>
+    </div>
+    
+    <div class="section">
+        <h2>3. Upload and Analyze Image</h2>
+        <input type="file" id="file-input" accept="image/*">
+        <button onclick="analyzeImage()">Analyze</button>
+        <pre id="analyze-output"></pre>
+    </div>
+    
+    <div class="section">
+        <h2>4. View Visualization</h2>
+        <div id="viz-display"></div>
+    </div>
+    
+    <script>
+        async function checkStatus() {
+            const output = document.getElementById('status-output');
+            try {
+                const response = await fetch('/api/status');
+                const data = await response.json();
+                output.textContent = JSON.stringify(data, null, 2);
+            } catch (error) {
+                output.textContent = 'Error: ' + error.message;
+            }
+        }
+        
+        async function checkViz() {
+            const output = document.getElementById('viz-output');
+            try {
+                const response = await fetch('/api/test-viz');
+                const data = await response.json();
+                output.textContent = JSON.stringify(data, null, 2);
+            } catch (error) {
+                output.textContent = 'Error: ' + error.message;
+            }
+        }
+        
+        async function analyzeImage() {
+            const fileInput = document.getElementById('file-input');
+            const output = document.getElementById('analyze-output');
+            const vizDisplay = document.getElementById('viz-display');
+            
+            if (!fileInput.files[0]) {
+                output.textContent = 'Please select an image first!';
+                return;
+            }
+            
+            output.textContent = 'Analyzing...';
+            
+            const reader = new FileReader();
+            reader.onload = async function(e) {
+                try {
+                    const response = await fetch('/api/analyze', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ image: e.target.result })
+                    });
+                    
+                    const data = await response.json();
+                    output.textContent = JSON.stringify(data, null, 2);
+                    
+                    // Display visualization if available
+                    if (data.visualizations && data.visualizations.grid) {
+                        vizDisplay.innerHTML = `
+                            <h3>Grid Visualization:</h3>
+                            <img src="${data.visualizations.grid}?t=${Date.now()}" 
+                                 style="max-width: 100%; border: 2px solid #333;">
+                        `;
+                    }
+                    
+                    // Display OCR if available
+                    if (data.ocr) {
+                        vizDisplay.innerHTML += `
+                            <h3>OCR Results:</h3>
+                            <p><strong>Has Text:</strong> ${data.ocr.has_text}</p>
+                            <p><strong>Text:</strong> ${JSON.stringify(data.ocr.text)}</p>
+                            <p><strong>Languages:</strong> ${JSON.stringify(data.ocr.languages)}</p>
+                        `;
+                    }
+                } catch (error) {
+                    output.textContent = 'Error: ' + error.message;
+                }
+            };
+            reader.readAsDataURL(fileInput.files[0]);
+        }
+    </script>
+</body>
+</html>

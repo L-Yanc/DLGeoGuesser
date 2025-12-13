@@ -27,13 +27,18 @@ class MultiLangOCR:
     - Devanagari-based languages
     """
 
-    def __init__(self):
+    def __init__(self, max_retries: int = 3):
         """
         Initializes the OcrAndLangDetector.
 
         This is very slow and memory-intensive as it initializes multiple OCR models
         for different language families.
+        
+        Args:
+            max_retries: Maximum number of retry attempts for downloading models.
         """
+        import time
+        
         latin_lang_list = ['af', 'az', 'bs', 'cs', 'cy', 'da', 'de', 'en', 'es', 'et', 'fr', 'ga', 'hr', 'hu', 'id', 'is', 'it', 'ku', 'la', 'lt',
                            'lv', 'mi', 'ms', 'mt', 'nl', 'no', 'oc', 'pi', 'pl', 'pt', 'ro', 'rs_latin', 'sk', 'sl', 'sq', 'sv', 'sw', 'tl', 'tr', 'uz', 'vi', 'en']
         arabic_lang_list = ['ar', 'fa', 'ug', 'ur', 'en']
@@ -43,15 +48,38 @@ class MultiLangOCR:
         # other_lang_list = ['th', 'ch_sim', 'ch_tra', 'ja', 'ko', 'te', 'kn']
 
         self.readers = {}
+        
+        language_families = {
+            'latin': latin_lang_list,
+            'arabic': arabic_lang_list,
+            'bengali': bengali_lang_list,
+            'cyrillic': cyrillic_lang_list,
+            'devanagari': devanagari_lang_list,
+        }
 
-        try:
-            self.readers['latin'] = easyocr.Reader(latin_lang_list)
-            self.readers['arabic'] = easyocr.Reader(arabic_lang_list)
-            self.readers['bengali'] = easyocr.Reader(bengali_lang_list)
-            self.readers['cyrillic'] = easyocr.Reader(cyrillic_lang_list)
-            self.readers['devanagari'] = easyocr.Reader(devanagari_lang_list)
-        except Exception as e:
-            print(f"Warning: Failed to initialize a language family reader. Error: {e}")
+        for family_name, lang_list in language_families.items():
+            success = False
+            for attempt in range(max_retries):
+                try:
+                    if attempt > 0:
+                        print(f"  Retry {attempt}/{max_retries-1} for {family_name}...")
+                        time.sleep(2)  # Wait before retry
+                    self.readers[family_name] = easyocr.Reader(lang_list, gpu=False, download_enabled=True)
+                    success = True
+                    break
+                except Exception as e:
+                    if attempt == max_retries - 1:
+                        print(f"  ⚠️  Failed to load {family_name} after {max_retries} attempts: {e}")
+                    else:
+                        print(f"  Download interrupted for {family_name}, retrying...")
+            
+            if success:
+                print(f"  ✓ Loaded {family_name} language family")
+
+        if not self.readers:
+            raise RuntimeError("Failed to initialize any OCR language models")
+        
+        print(f"  Successfully loaded {len(self.readers)}/{len(language_families)} language families")
 
         # for lang in other_lang_list:
         #     try:
