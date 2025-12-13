@@ -13,16 +13,16 @@ All training artifacts, including checkpoints and any pre-computed embeddings, a
 
 ### Training Flags
 
--   `--name <run_name>`: A unique name for the training run.
--   `--device <name>`: The hardware to run on (`cpu`, `mps`, `cuda`).
--   `--precompute-embeddings`: If present, activates the pre-computed training mode.
--   `--augmentations <type>`: Chooses the augmentation strategy.
-    -   `none`: No augmentations.
-    -   `image`: (On-the-fly mode only) Applies image-based augmentations like random cropping and color jitter.
-    -   `embedding`: Adds Gaussian noise to embeddings (works in both modes).
-    -   `both`: Applies both `image` and `embedding` augmentations (on-the-fly mode only).
--   `--resume`: If present, resumes training from the `last.pt` checkpoint within the run's directory (`--name`).
--   `--weights <path>`: Starts a new run but initializes the model's weights from a specified `.pt` file for fine-tuning.
+- `--name <run_name>`: A unique name for the training run.
+- `--device <name>`: The hardware to run on (`cpu`, `mps`, `cuda`).
+- `--precompute-embeddings`: If present, activates the pre-computed training mode.
+- `--augmentations <type>`: Chooses the augmentation strategy.
+  - `none`: No augmentations.
+  - `image`: (On-the-fly mode only) Applies image-based augmentations like random cropping and color jitter.
+  - `embedding`: Adds Gaussian noise to embeddings (works in both modes).
+  - `both`: Applies both `image` and `embedding` augmentations (on-the-fly mode only).
+- `--resume`: If present, resumes training from the `last.pt` checkpoint within the run's directory (`--name`).
+- `--weights <path>`: Starts a new run but initializes the model's weights from a specified `.pt` file for fine-tuning.
 
 ### Example Commands
 
@@ -30,6 +30,7 @@ All commands should be run from the project root.
 
 **Scenario 1: Fast training with pre-computed embeddings and noise augmentation.**
 This is the recommended approach for quick experiments.
+
 ```bash
 python -m src.dl_geoguesser.vision.clip_vibe.main train \
   --name clip_vibe_precomputed_run \
@@ -40,6 +41,7 @@ python -m src.dl_geoguesser.vision.clip_vibe.main train \
 
 **Scenario 2: Slower training with on-the-fly image processing and augmentation.**
 Use this if image-based augmentations are critical and you have time.
+
 ```bash
 python -m src.dl_geoguesser.vision.clip_vibe.main train \
   --name clip_vibe_image_aug_run \
@@ -49,6 +51,7 @@ python -m src.dl_geoguesser.vision.clip_vibe.main train \
 
 **Scenario 3: Resuming an interrupted run.**
 This will automatically use pre-computed embeddings if they were created by the original run.
+
 ```bash
 python -m src.dl_geoguesser.vision.clip_vibe.main train \
   --name clip_vibe_precomputed_run \
@@ -58,6 +61,7 @@ python -m src.dl_geoguesser.vision.clip_vibe.main train \
 
 **Scenario 4: Fine-tuning from existing weights.**
 Starts a new training session using weights from a previous `best.pt` file.
+
 ```bash
 python -m src.dl_geoguesser.vision.clip_vibe.main train \
   --name clip_vibe_finetune_run \
@@ -73,6 +77,7 @@ The dataset has a significant class imbalance (some classes have many more image
 2.  **Weighted Sampling**: You can enable weighted sampling for the training set to give samples from rarer classes a higher probability of being selected in each batch. This helps the model see a more balanced distribution of classes during training.
 
 To control these features, set the following flags in `configs/clip_vibe.yaml`:
+
 ```yaml
 training:
   use_weighted_sampling: true
@@ -84,6 +89,7 @@ training:
 To diagnose model performance and investigate issues like class imbalance, you can use the `evaluate` command. This mode will run your trained model on a dataset split (`val` or `test`) and provide detailed, per-class metrics.
 
 This will:
+
 1.  Print a **Classification Report** to the console, showing precision, recall, and F1-score for every class.
 2.  Generate and save a **Confusion Matrix** heatmap to the model's run directory (e.g., `runs/clip_vibe/your_run_name/confusion_matrix_val.png`).
 
@@ -110,7 +116,7 @@ from PIL import Image
 from dl_geoguesser.vision.clip_vibe import ClipVibe
 
 # --- Configuration ---
-DEVICE = "mps" 
+DEVICE = "mps"
 clip_vibe_weights_path = "runs/clip_vibe/your_run_name/best.pt"
 image_path = "path/to/an/image.jpg"
 
@@ -120,7 +126,7 @@ clip_vibe_classifier = ClipVibe(weights_path=clip_vibe_weights_path, device=DEVI
 # --- Get Class Scores ---
 image = Image.open(image_path).convert("RGB")
 class_scores = clip_vibe_classifier.predict(image)
-    
+
 # --- Print Top 5 Predictions ---
 if class_scores:
     sorted_scores = sorted(class_scores.items(), key=lambda item: item[1], reverse=True)
@@ -138,8 +144,8 @@ To understand why the model makes a certain prediction, you can use the `explain
 
 There are two available methods for generating explanations:
 
-1.  **`attention`**: This is a fast method that visualises the gradient-weighted attention from the CLIP model. It's useful for a quick look at what the model might be focusing on, but it is less rigorous because the underlying attention weights were not trained for the classification task.
-2.  **`integrated_gradients`**: This is a more rigorous, but slower, method that computes pixel-level attributions. It provides a more faithful explanation of which pixels caused the prediction. This method works correctly even if the CLIP backbone is frozen.
+1.  **`attention`**: This is a fast method that visualises the gradient-weighted attention from the CLIP model.
+2.  **`integrated_gradients`**: This is a slower method that computes pixel-level attributions. It provides a more faithful explanation of which pixels caused the prediction.
 
 ### Command
 

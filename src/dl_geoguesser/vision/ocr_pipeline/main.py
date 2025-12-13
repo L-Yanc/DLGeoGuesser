@@ -6,6 +6,7 @@ import numpy as np
 from langdetect import detect_langs
 
 from dl_geoguesser.vision.ocr_pipeline.model import MultiLangOCR
+from dl_geoguesser.vision.yolo_detector.model import YOLOv8Detector
 
 
 def process_yolo_predictions(yolo_predictions: dict, image: np.ndarray) -> dict:
@@ -77,10 +78,12 @@ def process_yolo_predictions(yolo_predictions: dict, image: np.ndarray) -> dict:
 def main():
     """
     Main entrypoint for the OCR pipeline module.
-    Provides a CLI for running OCR on a single image as if it were a YOLO crop.
+    Provides a CLI for running OCR on a single image.
+    Can use YOLO predictions if weights are provided.
     """
-    parser = argparse.ArgumentParser(description="OCR on a single image crop CLI")
+    parser = argparse.ArgumentParser(description="OCR on a single image CLI")
     parser.add_argument("--image", type=str, required=True, help="Path to source image to run multilingual OCR on.")
+    parser.add_argument("--yolo_weights", type=str, default=None, help="Path to YOLOv8 weights to use for object detection.")
 
     args = parser.parse_args()
 
@@ -89,19 +92,30 @@ def main():
     if image is None:
         print(f"Error: Could not load image from {args.image}")
         return
+    
+    # Convert BGR (from cv2) to RGB
+    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
-    # Get image dimensions
-    height, width, _ = image.shape
+    if args.yolo_weights:
+        print(f"Using YOLOv8 model: {args.yolo_weights}")
+        yolo_detector = YOLOv8Detector(model_path=args.yolo_weights)
+        yolo_predictions = yolo_detector.predict(image)
+        print("YOLO Predictions:")
+        pprint.pprint(yolo_predictions)
+        print("-" * 30)
+    else:
+        # Get image dimensions
+        height, width, _ = image.shape
+        # Create a dummy YOLO prediction for the full image
+        yolo_predictions = {
+            "sign": [
+                {"confidence": 1.0, "bbox_crop": [0, 0, width, height], "scale": width * height}
+            ]
+        }
 
-    # Create a dummy YOLO prediction for the full image
-    dummy_yolo_predictions = {
-        "sign": [
-            {"confidence": 1.0, "bbox_crop": [0, 0, width, height], "scale": width * height}
-        ]
-    }
-
-    # Run OCR pipeline on the dummy prediction
-    ocr_results = process_yolo_predictions(dummy_yolo_predictions, image)
+    # Run OCR pipeline on the predictions
+    print("OCR Results:")
+    ocr_results = process_yolo_predictions(yolo_predictions, image)
     pprint.pprint(ocr_results)
 
 
