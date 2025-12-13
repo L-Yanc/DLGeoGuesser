@@ -61,6 +61,7 @@ function checkPipelineStatus() {
         .then(data => {
             if (data.ready) {
                 setStatus('ready', 'READY');
+                checkChatModelsStatus();
             } else {
                 setStatus('processing', 'LOADING...');
                 setTimeout(checkPipelineStatus, 2000);
@@ -69,6 +70,36 @@ function checkPipelineStatus() {
         .catch(error => {
             console.error('Error checking status:', error);
             setStatus('processing', 'ERROR');
+        });
+}
+
+function checkChatModelsStatus() {
+    fetch('/api/chat/status')
+        .then(response => response.json())
+        .then(data => {
+            const modelSelect = document.getElementById('llm-model-select');
+            
+            // Enable/disable options based on availability
+            for (let option of modelSelect.options) {
+                const modelType = option.value;
+                if (data.models && data.models[modelType] !== undefined) {
+                    option.disabled = !data.models[modelType];
+                    
+                    // Add status indicator
+                    if (data.models[modelType]) {
+                        option.text = option.text.replace(' (unavailable)', '');
+                    } else {
+                        if (!option.text.includes('(unavailable)')) {
+                            option.text += ' (unavailable)';
+                        }
+                    }
+                }
+            }
+            
+            console.log('Chat models status:', data.models);
+        })
+        .catch(error => {
+            console.error('Error checking chat models:', error);
         });
 }
 
@@ -150,6 +181,24 @@ async function analyzeImage() {
 
     // Get selected model
     const selectedModel = document.getElementById('llm-model-select').value;
+    
+    // Check if VLA is selected but not available
+    if (selectedModel === 'vla_finetuned') {
+        const modelSelect = document.getElementById('llm-model-select');
+        const selectedOption = modelSelect.options[modelSelect.selectedIndex];
+        if (selectedOption.disabled || selectedOption.text.includes('(unavailable)')) {
+            const proceed = confirm(
+                'VLA server is not available. The analysis will run without LLM explanations.\n\n' +
+                'To use VLA:\n' +
+                '1. Start the VLA server: python scripts/start_vla_server.py\n' +
+                '2. Or set VLA_SERVER_URL to a remote server\n\n' +
+                'Continue without VLA?'
+            );
+            if (!proceed) {
+                return;
+            }
+        }
+    }
     
     // Show processing state
     showState('processing');

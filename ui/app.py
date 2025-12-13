@@ -6,6 +6,7 @@ A 90s-style game show interface for the GeoLocation Pipeline
 import base64
 import io
 import json
+import os
 import time
 from pathlib import Path
 
@@ -22,6 +23,7 @@ from src.dl_geoguesser.vision.pipeline import (
     save_visualizations,
 )
 from src.dl_geoguesser.language.nanochat_model import NanoChatModel
+from src.dl_geoguesser.language.vla_client import VLAInferenceClient
 
 app = Flask(__name__)
 
@@ -36,6 +38,10 @@ chat_models = {
     'self_trained_sft': None,
 }
 chat_models_ready = False
+
+# VLA client (remote inference)
+vla_client = None
+VLA_SERVER_URL = os.environ.get("VLA_SERVER_URL", "http://localhost:8000")
 
 # Store conversation history per session (simple in-memory storage)
 # In production, you'd use Redis or a database
@@ -82,7 +88,7 @@ def initialize_chat_models(force_reload=False):
     
     print("💬 Initializing Chat Models...")
     
-    # Map model types to checkpoint paths (matching chat.py structure)
+    # Map model types to checkpoint paths
     checkpoint_paths = {
         'self_trained_base': ROOT_DIR / "models" / "d12_base_1k" / "base_checkpoints",
         'self_trained_mid': ROOT_DIR / "models" / "d12_base_1k" / "mid_checkpoints" / "d12",
@@ -108,6 +114,36 @@ def initialize_chat_models(force_reload=False):
     
     chat_models_ready = True
     print(f"✅ Chat models ready! Loaded: {[k for k, v in chat_models.items() if v is not None]}")
+
+
+def initialize_vla_client():
+    """Initialize VLA client connection."""
+    global vla_client
+    
+    if vla_client is None:
+        print(f"🌐 Initializing VLA client (server: {VLA_SERVER_URL})...")
+        vla_client = VLAInferenceClient(VLA_SERVER_URL)
+        
+        # Test connection
+        try:
+            health = vla_client.health_check()
+            print(f"✅ VLA server connected: {health}")
+            return vla_client
+        except Exception as e:
+            print(f"⚠️  VLA server not available: {e}")
+            print(f"   Set VLA_SERVER_URL environment variable to configure")
+            print(f"   To start server: python -m src.dl_geoguesser.language.vla_server.server")
+            vla_client = None  # Reset to None if connection fails
+            return None
+    
+    # If client already exists, verify it's still working
+    try:
+        vla_client.health_check()
+        return vla_client
+    except Exception as e:
+        print(f"⚠️  VLA server connection lost: {e}")
+        vla_client = None
+        return None
 
 
 @app.route('/')
@@ -150,13 +186,55 @@ def generate_initial_analysis(result, model_type='self_trained_sft'):
     
     Args:
         result: PipelineResult from image analysis
-        model_type: Which LLM to use for analysis
+        model_type: Which LLM to use for analysis ('vla_finetuned' or nanochat models)
         
     Returns:
         Dict with LLM's decision and reasoning
     """
     try:
-        # Initialize models if needed (force reload to ensure all models loaded)
+        # Check if using VLA fine-tuned model
+        if model_type == 'vla_finetuned':
+            client = initialize_vla_client()
+            if client is None:
+                print(f"⚠️  VLA client not available - server not running")
+                print(f"   Start server with: python -m src.dl_geoguesser.language.vla_server.server")
+                print(f"   Or set VLA_SERVER_URL to remote server")
+                return None
+            
+            # Build vision data structure for VLA
+            vision_data = {
+                "country": result.top_country,
+                "country_confidence": result.top_country_confidence,
+                "vibe_top": result.top_vibe,
+                "vibe_distribution": dict(sorted(
+                    result.vibe_scores.items(),
+                    key=lambda x: x[1],
+                    reverse=True
+                )[:5]),
+                "evidence": {
+                    "top_contents": list(result.detections.keys()),
+                    "detected_text": result.extracted_text if result.extracted_text else None,
+                    "detected_languages": result.detected_languages if result.detected_languages else None,
+                }
+            }
+            
+            print(f"🤖 Generating initial analysis with VLA fine-tuned model...")
+            
+            response = client.generate_explanation(
+                vision_data=vision_data,
+                max_tokens=128,
+                temperature=0.7,
+                top_p=0.9
+            )
+            
+            print(f"✅ VLA analysis: {response[:100]}...")
+            
+            return {
+                'analysis': response.strip(),
+                'model': model_type
+            }
+        
+        # Otherwise use NanoChat models
         initialize_chat_models(force_reload=False)
         
         model = chat_models.get(model_type)
@@ -209,12 +287,22 @@ Analysis:"""
 @app.route('/api/chat/status')
 def chat_status():
     """Check if chat models are ready."""
+    # Check VLA availability
+    vla_available = False
+    if vla_client:
+        try:
+            vla_client.health_check()
+            vla_available = True
+        except:
+            pass
+    
     return jsonify({
-        'ready': chat_models_ready,
+        'ready': chat_models_ready or vla_available,
         'models': {
             'self_trained_base': chat_models['self_trained_base'] is not None,
             'self_trained_mid': chat_models['self_trained_mid'] is not None,
             'self_trained_sft': chat_models['self_trained_sft'] is not None,
+            'vla_finetuned': vla_available,
         }
     })
 
@@ -223,10 +311,6 @@ def chat_status():
 def chat_generate():
     """Generate chat response with conversation context."""
     try:
-        # Initialize models if needed
-        if not chat_models_ready:
-            initialize_chat_models()
-        
         data = request.json
         user_message = data.get('message', '')
         model_type = data.get('model', 'self_trained_sft')
@@ -238,19 +322,85 @@ def chat_generate():
         if not user_message:
             return jsonify({'error': 'No message provided'}), 400
         
-        # Handle different model types
-        if model_type == 'sota':
-            # For state-of-the-art, we could integrate OpenAI/Anthropic API
-            # For now, return a placeholder
+        # Handle VLA fine-tuned model
+        if model_type == 'vla_finetuned':
+            client = initialize_vla_client()
+            if client is None:
+                return jsonify({
+                    'error': 'VLA server not available',
+                    'suggestion': 'Start VLA server or set VLA_SERVER_URL environment variable'
+                }), 503
+            
+            # Get or create conversation history
+            if session_id not in conversation_history:
+                conversation_history[session_id] = []
+            history = conversation_history[session_id]
+            
+            # Build context-aware prompt
+            prompt_parts = []
+            
+            # Add initial analysis if available
+            if session_id in llm_initial_analysis:
+                initial = llm_initial_analysis[session_id]
+                prompt_parts.append(f"Initial Analysis:\n{initial['analysis']}\n")
+            
+            # Add context
+            if context:
+                prompt_parts.append("Image Analysis:")
+                if context.get('country'):
+                    prompt_parts.append(f"Location: {context['country']['top']} ({context['country']['confidence']}%)")
+                if context.get('vibe'):
+                    prompt_parts.append(f"Scene: {context['vibe']['top']}")
+                if context.get('ocr') and context['ocr'].get('text_raw'):
+                    prompt_parts.append(f"Text: {context['ocr']['text_raw']}")
+                prompt_parts.append("")
+            
+            # Add recent history
+            recent_history = history[-4:] if len(history) > 4 else history
+            if recent_history:
+                for msg in recent_history:
+                    role = "User" if msg['role'] == 'user' else "Assistant"
+                    prompt_parts.append(f"{role}: {msg['content']}")
+            
+            # Add current message
+            prompt_parts.append(f"User: {user_message}")
+            
+            full_prompt = "\n".join(prompt_parts)
+            
+            print(f"💬 Generating with VLA fine-tuned model...")
+            
+            # Use VLA client's chat endpoint
+            response_text = client.generate_explanation(
+                vision_data={"prompt": full_prompt},
+                max_tokens=max_tokens,
+                temperature=temperature,
+                custom_prompt=full_prompt
+            )
+            
+            # Store in history
+            history.append({'role': 'user', 'content': user_message})
+            history.append({'role': 'assistant', 'content': response_text})
+            
+            if len(history) > 20:
+                conversation_history[session_id] = history[-20:]
+            
             return jsonify({
-                'error': 'State-of-the-art model not yet integrated',
-                'suggestion': 'Try "base" or "finetuned" models'
-            }), 501
+                'success': True,
+                'response': response_text,
+                'model': model_type,
+                'session_id': session_id
+            })
+        
+        # Handle NanoChat models
+        if not chat_models_ready:
+            initialize_chat_models()
         
         # Get the selected model
         model = chat_models.get(model_type)
         if model is None:
             available = [k for k, v in chat_models.items() if v is not None]
+            if vla_client:
+                available.append('vla_finetuned')
             return jsonify({
                 'error': f'Model "{model_type}" not available',
                 'available_models': available

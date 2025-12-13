@@ -34,13 +34,13 @@
                 <div class="model-selection-section">
                     <label class="model-select-label">AI Model:</label>
                     <select id="llm-model-select" class="model-select">
-                        <optgroup label="Self-Trained">
+                        <optgroup label="NanoChat (Local)">
                             <option value="self_trained_base">Base (Pre-trained)</option>
                             <option value="self_trained_mid">Mid (Checkpoint)</option>
-                            <option value="self_trained_sft" selected>SFT (Fine-tuned)</option>
+                            <option value="self_trained_sft">SFT (Fine-tuned)</option>
                         </optgroup>
-                        <optgroup label="Fine-Tuned">
-                            <option value="finetuned_chat" disabled>Chat Optimized (Coming Soon)</option>
+                        <optgroup label="VLA (Remote)">
+                            <option value="vla_finetuned" selected>LLaMA 3.1 8B (GeoGuesser Fine-tuned)</option>
                         </optgroup>
                         <optgroup label="State-of-the-Art">
                             <option value="sota_gpt4" disabled>GPT-4 (Coming Soon)</option>
