@@ -33,22 +33,22 @@ class MultiLangOCR:
 
         This is very slow and memory-intensive as it initializes multiple OCR models
         for different language families.
-        
+
         Args:
             max_retries: Maximum number of retry attempts for downloading models.
         """
         import time
-        
+
         latin_lang_list = ['af', 'az', 'bs', 'cs', 'cy', 'da', 'de', 'en', 'es', 'et', 'fr', 'ga', 'hr', 'hu', 'id', 'is', 'it', 'ku', 'la', 'lt',
                            'lv', 'mi', 'ms', 'mt', 'nl', 'no', 'oc', 'pi', 'pl', 'pt', 'ro', 'rs_latin', 'sk', 'sl', 'sq', 'sv', 'sw', 'tl', 'tr', 'uz', 'vi', 'en']
         arabic_lang_list = ['ar', 'fa', 'ug', 'ur', 'en']
         bengali_lang_list = ['bn', 'as', 'en']
         cyrillic_lang_list = ['ru', 'rs_cyrillic', 'be', 'bg', 'uk', 'mn', 'abq', 'ady', 'kbd', 'ava', 'dar', 'inh', 'che', 'lbe', 'lez', 'tab', 'tjk', 'en']
         devanagari_lang_list = ['hi', 'mr', 'ne', 'bh', 'mai', 'ang', 'bho', 'mah', 'sck', 'new', 'gom', 'en']  # 'sa' and 'bgc' are not supported
-        # other_lang_list = ['th', 'ch_sim', 'ch_tra', 'ja', 'ko', 'te', 'kn']
+        other_lang_list = ['th', 'ch_sim', 'ch_tra', 'ja', 'ko', 'te', 'kn']
 
         self.readers = {}
-        
+
         language_families = {
             'latin': latin_lang_list,
             'arabic': arabic_lang_list,
@@ -72,20 +72,20 @@ class MultiLangOCR:
                         print(f"  ⚠️  Failed to load {family_name} after {max_retries} attempts: {e}")
                     else:
                         print(f"  Download interrupted for {family_name}, retrying...")
-            
+
             if success:
                 print(f"  ✓ Loaded {family_name} language family")
 
         if not self.readers:
             raise RuntimeError("Failed to initialize any OCR language models")
-        
+
         print(f"  Successfully loaded {len(self.readers)}/{len(language_families)} language families")
 
-        # for lang in other_lang_list:
-        #     try:
-        #         self.readers[lang] = easyocr.Reader([lang])
-        #     except Exception as e:
-        #         print(f"Warning: Failed to initialize easyocr reader for: {lang}. Error: {e}")
+        for lang in other_lang_list:
+            try:
+                self.readers[lang] = easyocr.Reader([lang])
+            except Exception as e:
+                print(f"Warning: Failed to initialize easyocr reader for: {lang}. Error: {e}")
 
     def extract_text(self, image: np.ndarray) -> dict:
         """
@@ -132,4 +132,3 @@ class MultiLangOCR:
             bool: True if the class is likely to contain text, False otherwise.
         """
         return YOLO_CLASSES_WITH_TEXT.get(class_name, False)
-

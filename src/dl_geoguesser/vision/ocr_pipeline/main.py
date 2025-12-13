@@ -92,14 +92,14 @@ def main():
     if image is None:
         print(f"Error: Could not load image from {args.image}")
         return
-    
+
     # Convert BGR (from cv2) to RGB
     image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
     if args.yolo_weights:
         print(f"Using YOLOv8 model: {args.yolo_weights}")
         yolo_detector = YOLOv8Detector(model_path=args.yolo_weights)
-        yolo_predictions = yolo_detector.predict(image)
+        yolo_predictions = yolo_detector.predict(image, 0.3)
         print("YOLO Predictions:")
         pprint.pprint(yolo_predictions)
         print("-" * 30)
