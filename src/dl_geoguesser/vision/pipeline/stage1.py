@@ -185,7 +185,7 @@ class GeoLocationPipeline:
     
     def _run_yolo(self, image: Image.Image) -> Dict[str, List[Dict]]:
         """Run YOLO model on the image."""
-        return self._yolo.predict(image, conf=self.config.yolo_conf_threshold)
+        return self._yolo.predict(np.array(image), conf=self.config.yolo_conf_threshold)
     
     def _run_dino(self, image: Image.Image, detections: Dict) -> Dict[str, float]:
         """Run DINO model on YOLO-detected regions."""
@@ -213,8 +213,9 @@ class GeoLocationPipeline:
         image_np = np.array(image)
         
         # Use the proper process_yolo_predictions function from ocr_pipeline
+        # Pass the pre-initialized OCR detector to avoid reloading models
         print(f"  OCR: Processing YOLO detections with process_yolo_predictions")
-        ocr_results = process_yolo_predictions(detections, image_np)
+        ocr_results = process_yolo_predictions(detections, image_np, ocr_detector=self._ocr)
         
         print(f"  OCR: Found {len(ocr_results)} text regions with content")
         

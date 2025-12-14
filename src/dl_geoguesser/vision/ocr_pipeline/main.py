@@ -9,7 +9,7 @@ from dl_geoguesser.vision.ocr_pipeline.model import MultiLangOCR
 from dl_geoguesser.vision.yolo_detector.model import YOLOv8Detector
 
 
-def process_yolo_predictions(yolo_predictions: dict, image: np.ndarray) -> dict:
+def process_yolo_predictions(yolo_predictions: dict, image: np.ndarray, ocr_detector: MultiLangOCR = None) -> dict:
     """
     Processes YOLO predictions to extract text and detect language from relevant objects.
 

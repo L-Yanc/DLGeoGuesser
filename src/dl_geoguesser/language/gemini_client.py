@@ -3,25 +3,60 @@ Gemini API client for GeoGuesser explanations.
 
 This module provides integration with Google's Gemini API for generating
 high-quality GeoGuesser explanations using state-of-the-art models.
+
+Supports both the new google.genai SDK (for Gemini 3) and legacy google.generativeai.
 """
 
 import os
 import json
+import re
 from typing import Dict, Any, Optional
 
+# Try new SDK first (for Gemini 3), fall back to legacy
 try:
-    import google.generativeai as genai
+    from google import genai
+    from google.genai import types
     GEMINI_AVAILABLE = True
+    USE_NEW_SDK = True
 except ImportError:
-    GEMINI_AVAILABLE = False
+    try:
+        import google.generativeai as genai_legacy
+        GEMINI_AVAILABLE = True
+        USE_NEW_SDK = False
+    except ImportError:
+        GEMINI_AVAILABLE = False
+        USE_NEW_SDK = False
+
+
+def format_markdown_to_html(text: str) -> str:
+    """
+    Convert markdown formatting to HTML.
+    
+    Handles:
+    - **bold** -> <strong>bold</strong>
+    - *italic* -> <em>italic</em>
+    - `code` -> <code>code</code>
+    """
+    if not text:
+        return text
+    
+    # Bold: **text** -> <strong>text</strong>
+    text = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', text)
+    
+    # Italic: *text* (but not already part of bold) -> <em>text</em>
+    text = re.sub(r'(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)', r'<em>\1</em>', text)
+    
+    # Inline code: `text` -> <code>text</code>
+    text = re.sub(r'`(.+?)`', r'<code>\1</code>', text)
+    
+    return text
 
 
 class GeminiClient:
     """
     Client for Google Gemini API.
     
-    Provides a simple interface for generating GeoGuesser explanations
-    using Gemini models (gemini-pro, gemini-1.5-pro, etc.).
+    Supports Gemini 3 Pro (new SDK) and Gemini 1.5 models.
     """
     
     def __init__(
@@ -35,15 +70,13 @@ class GeminiClient:
         Args:
             api_key: Google API key. If None, reads from GEMINI_API_KEY env var.
             model_name: Gemini model to use (default: gemini-3-pro-preview)
-                       Options: gemini-3-pro-preview, gemini-2.5-flash
         """
         if not GEMINI_AVAILABLE:
             raise ImportError(
-                "google-generativeai not installed. "
-                "Install with: pip install google-generativeai"
+                "Google Gemini SDK not installed. "
+                "Install with: pip install google-genai"
             )
         
-        # Get API key
         self.api_key = api_key or os.environ.get("GEMINI_API_KEY")
         if not self.api_key:
             raise ValueError(
@@ -51,41 +84,42 @@ class GeminiClient:
                 "Set GEMINI_API_KEY environment variable or pass api_key parameter."
             )
         
-        # Configure Gemini
-        genai.configure(api_key=self.api_key)
-        
-        # Initialize model
         self.model_name = model_name
-        self.model = genai.GenerativeModel(model_name)
+        self.use_new_sdk = USE_NEW_SDK
         
-        print(f"✅ Gemini client initialized with model: {model_name}")
+        if self.use_new_sdk:
+            # New SDK for Gemini 3
+            self.client = genai.Client(api_key=self.api_key)
+        else:
+            # Legacy SDK
+            genai_legacy.configure(api_key=self.api_key)
+            self.model = genai_legacy.GenerativeModel(model_name)
+        
+        print(f"✅ Gemini client initialized with model: {model_name} (new_sdk={self.use_new_sdk})")
     
     def generate_explanation(
         self,
         vision_data: Dict[str, Any],
-        max_tokens: int = 10000,
-        temperature: float = 0.7,
-        custom_prompt: Optional[str] = None
+        max_tokens: int = None,
+        temperature: float = 1.0,
+        custom_prompt: Optional[str] = None,
+        format_html: bool = True
     ) -> str:
         """
         Generate a GeoGuessr explanation based on vision data.
         
         Args:
             vision_data: Dictionary containing vision model outputs
-            max_tokens: Maximum number of tokens to generate
-            temperature: Sampling temperature (0-1)
+            max_tokens: Maximum tokens to generate (None = no limit)
+            temperature: Sampling temperature (1.0 recommended for Gemini 3)
             custom_prompt: Optional custom prompt to override default
-            
-        Returns:
-            Generated explanation text
+            format_html: Convert markdown formatting to HTML (default: True)
         """
-        # Create the prompt from vision data
         vision_str = json.dumps(vision_data, ensure_ascii=False, indent=2)
         
         if custom_prompt:
             prompt = f"{custom_prompt}\n\nVision Data:\n{vision_str}\n\nResponse:"
         else:
-            # Default GeoGuessr prompt
             prompt = (
                 "You are an expert GeoGuessr player analyzing a street-view image.\n\n"
                 "EVIDENCE FROM COMPUTER VISION MODELS:\n"
@@ -99,162 +133,165 @@ class GeminiClient:
                 "EXPLANATION:"
             )
         
-        # Generate with Gemini
-        generation_config = genai.types.GenerationConfig(
-            max_output_tokens=max_tokens,
-            temperature=temperature,
-        )
-        
-        # Configure safety settings to be less restrictive
-        safety_settings = [
-            {
-                "category": "HARM_CATEGORY_HARASSMENT",
-                "threshold": "BLOCK_NONE",
-            },
-            {
-                "category": "HARM_CATEGORY_HATE_SPEECH",
-                "threshold": "BLOCK_NONE",
-            },
-            {
-                "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
-                "threshold": "BLOCK_NONE",
-            },
-            {
-                "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
-                "threshold": "BLOCK_NONE",
-            },
-        ]
-        
-        response = self.model.generate_content(
-            prompt,
-            generation_config=generation_config,
-            safety_settings=safety_settings
-        )
-        
-        # Handle blocked responses
-        if not response.candidates:
-            return "Unable to generate response (blocked by safety filters)"
-        
-        candidate = response.candidates[0]
-        
-        # Extract text - try multiple methods
-        text = ""
-        try:
-            # Method 1: Direct response.text (works for normal responses)
-            text = response.text
-        except:
-            try:
-                # Method 2: From candidate parts
-                if candidate.content and candidate.content.parts:
-                    text = candidate.content.parts[0].text
-            except Exception as e:
-                print(f"⚠️  Failed to extract text: {e}")
-                print(f"   Finish reason: {candidate.finish_reason}")
-                print(f"   Has content: {candidate.content is not None}")
-        
-        # Check finish reason
-        if candidate.finish_reason != 1:  # 1 = STOP (normal completion)
-            # finish_reason: 2=MAX_TOKENS, 3=SAFETY, 4=RECITATION, 5=OTHER
-            if candidate.finish_reason == 2:
-                # Response was cut off at max tokens - return what we have anyway
-                if text:
-                    print(f"⚠️  Response truncated at max_tokens, returning {len(text)} chars")
-                    return text.strip()
-                else:
-                    return "Response truncated (no content generated)"
-            elif candidate.finish_reason == 3:
-                return "Unable to generate response (blocked by safety filters)"
-            else:
-                return f"Unable to generate response (finish_reason: {candidate.finish_reason})"
-        
-        # Normal response
-        return text.strip()
+        response = self._generate(prompt, max_tokens, temperature)
+        if format_html and response:
+            response = format_markdown_to_html(response)
+        return response
     
     def generate(
         self,
         prompt: str,
-        max_tokens: int = 10000,
-        temperature: float = 0.7
+        max_tokens: int = None,
+        temperature: float = 1.0,
+        format_html: bool = True
     ) -> str:
         """
         Generate text from a raw prompt.
         
         Args:
             prompt: Input text prompt
-            max_tokens: Maximum number of tokens to generate
-            temperature: Sampling temperature
-            
-        Returns:
-            Generated text
+            max_tokens: Maximum tokens to generate (None = no limit)
+            temperature: Sampling temperature (1.0 recommended for Gemini 3)
+            format_html: Convert markdown formatting to HTML (default: True)
         """
-        generation_config = genai.types.GenerationConfig(
-            max_output_tokens=max_tokens,
-            temperature=temperature,
-        )
-        
-        # Configure safety settings to be less restrictive
-        safety_settings = [
-            {
-                "category": "HARM_CATEGORY_HARASSMENT",
-                "threshold": "BLOCK_NONE",
-            },
-            {
-                "category": "HARM_CATEGORY_HATE_SPEECH",
-                "threshold": "BLOCK_NONE",
-            },
-            {
-                "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
-                "threshold": "BLOCK_NONE",
-            },
-            {
-                "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
-                "threshold": "BLOCK_NONE",
-            },
-        ]
-        
-        response = self.model.generate_content(
-            prompt,
-            generation_config=generation_config,
-            safety_settings=safety_settings
-        )
-        
-        # Handle blocked responses
-        if not response.candidates:
-            return "Unable to generate response (blocked by safety filters)"
-        
-        candidate = response.candidates[0]
-        
-        # Extract text - try multiple methods
-        text = ""
+        response = self._generate(prompt, max_tokens, temperature)
+        if format_html and response:
+            response = format_markdown_to_html(response)
+        return response
+    
+    def _generate(self, prompt: str, max_tokens: int = None, temperature: float = 1.0) -> str:
+        """Internal generation method."""
+        if self.use_new_sdk:
+            return self._generate_new_sdk(prompt, max_tokens, temperature)
+        else:
+            return self._generate_legacy_sdk(prompt, max_tokens, temperature)
+
+    def _generate_new_sdk(self, prompt: str, max_tokens: int = None, temperature: float = 1.0) -> str:
+        """Generate using new google.genai SDK (Gemini 3)."""
         try:
-            # Method 1: Direct response.text (works for normal responses)
-            text = response.text
-        except:
-            try:
-                # Method 2: From candidate parts
+            # Build config following Gemini 3 recommendations
+            config_kwargs = {}
+            
+            # Temperature - Gemini 3 recommends 1.0 default
+            if temperature != 1.0:
+                config_kwargs["temperature"] = temperature
+            
+            # Max tokens - Gemini 3 Pro supports up to 64k output tokens
+            # Set to a high default if None to avoid truncation
+            if max_tokens is None:
+                config_kwargs["max_output_tokens"] = 8024 # Reasonable default (64k max available)
+            elif max_tokens > 0:
+                config_kwargs["max_output_tokens"] = min(max_tokens, 65536)  # Cap at 64k
+            # If max_tokens is 0 or negative, don't set it (use API default)
+            
+            print(f"🔍 Config kwargs: {config_kwargs}")
+            print(f"🔍 Prompt length: {len(prompt)} chars")
+            
+            # Create config
+            config = types.GenerateContentConfig(**config_kwargs)
+            
+            # Generate content
+            response = self.client.models.generate_content(
+                model=self.model_name,
+                contents=prompt,
+                config=config
+            )
+            
+            print(f"🔍 Response received, has candidates: {hasattr(response, 'candidates') and bool(response.candidates)}")
+            
+            # Extract text from response
+            # According to Gemini 3 docs, response.text should work directly
+            if hasattr(response, 'text') and response.text:
+                return response.text.strip()
+            
+            # Fallback: Try response.parts
+            if hasattr(response, 'parts') and response.parts:
+                text_parts = []
+                for part in response.parts:
+                    if hasattr(part, 'text') and part.text:
+                        text_parts.append(part.text)
+                if text_parts:
+                    return ' '.join(text_parts).strip()
+            
+            # Fallback: Extract from candidates using model_dump()
+            if hasattr(response, 'candidates') and response.candidates:
+                candidate = response.candidates[0]
+                if hasattr(candidate, 'content') and candidate.content:
+                    try:
+                        content_dict = candidate.content.model_dump() if hasattr(candidate.content, 'model_dump') else candidate.content.dict()
+                        print(f"🔍 Content dict: {content_dict}")
+                        
+                        if content_dict and 'parts' in content_dict:
+                            parts_list = content_dict['parts']
+                            print(f"🔍 Parts list: {parts_list}, type: {type(parts_list)}")
+                            
+                            if parts_list:
+                                text_parts = []
+                                for i, part in enumerate(parts_list):
+                                    print(f"🔍 Part {i}: {part}, type: {type(part)}")
+                                    if isinstance(part, dict) and 'text' in part and part['text']:
+                                        text_parts.append(part['text'])
+                                    elif hasattr(part, 'text') and part.text:
+                                        text_parts.append(part.text)
+                                
+                                if text_parts:
+                                    print(f"✅ Extracted {len(text_parts)} text parts")
+                                    return ' '.join(text_parts).strip()
+                                else:
+                                    print(f"⚠️  No text found in {len(parts_list)} parts")
+                    except Exception as e:
+                        print(f"⚠️  Error extracting from content dict: {e}")
+                        import traceback
+                        traceback.print_exc()
+            
+            # If we get here, no text was found
+            finish_reason = "unknown"
+            if hasattr(response, 'candidates') and response.candidates:
+                finish_reason = getattr(response.candidates[0], 'finish_reason', 'unknown')
+            
+            print(f"⚠️  No text found in response (finish_reason: {finish_reason})")
+            return "No response generated"
+            
+        except Exception as e:
+            print(f"⚠️  Gemini generation error: {e}")
+            import traceback
+            traceback.print_exc()
+            return f"Error: {str(e)}"
+    
+    def _generate_legacy_sdk(self, prompt: str, max_tokens: int = None, temperature: float = 1.0) -> str:
+        """Generate using legacy google.generativeai SDK."""
+        try:
+            config_params = {"temperature": temperature}
+            if max_tokens is not None:
+                config_params["max_output_tokens"] = max_tokens
+            generation_config = genai_legacy.types.GenerationConfig(**config_params)
+            
+            safety_settings = [
+                {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+                {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+                {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+                {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
+            ]
+            
+            response = self.model.generate_content(
+                prompt,
+                generation_config=generation_config,
+                safety_settings=safety_settings
+            )
+            
+            if response.text:
+                return response.text.strip()
+            
+            if response.candidates:
+                candidate = response.candidates[0]
                 if candidate.content and candidate.content.parts:
-                    text = candidate.content.parts[0].text
-            except Exception as e:
-                print(f"⚠️  Failed to extract text: {e}")
-                print(f"   Finish reason: {candidate.finish_reason}")
-                print(f"   Has content: {candidate.content is not None}")
-        
-        # Check finish reason
-        if candidate.finish_reason != 1:  # 1 = STOP (normal completion)
-            if candidate.finish_reason == 2:
-                # Response was cut off at max tokens - return what we have anyway
-                if text:
-                    print(f"⚠️  Response truncated at max_tokens, returning {len(text)} chars")
-                    return text.strip()
-                else:
-                    return "Response truncated (no content generated)"
-            elif candidate.finish_reason == 3:
-                return "Unable to generate response (blocked by safety filters)"
-            else:
-                return f"Unable to generate response (finish_reason: {candidate.finish_reason})"
-        
-        # Normal response
-        return text.strip()
+                    return candidate.content.parts[0].text.strip()
+            
+            return "No response generated"
+            
+        except Exception as e:
+            print(f"⚠️  Gemini generation error: {e}")
+            return f"Error: {str(e)}"
     
     def get_model_info(self) -> Dict[str, Any]:
         """Get information about the model."""
@@ -262,48 +299,26 @@ class GeminiClient:
             "model": self.model_name,
             "provider": "Google Gemini",
             "api_key_set": bool(self.api_key),
+            "new_sdk": self.use_new_sdk,
         }
     
     def __repr__(self):
-        """String representation."""
         return f"GeminiClient(model={self.model_name})"
 
 
 if __name__ == "__main__":
-    # Example usage
     import sys
     
-    # Check if API key is set
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
         print("❌ GEMINI_API_KEY not set")
-        print("\nSet it with:")
-        print("  export GEMINI_API_KEY='your_api_key_here'")
-        print("\nGet your API key from:")
-        print("  https://makersuite.google.com/app/apikey")
         sys.exit(1)
     
-    # Initialize client
     client = GeminiClient()
     
-    # Example vision data
-    vision_data = {
-        "country": "france",
-        "country_confidence": 0.85,
-        "vibe_top": "suburban residential area",
-        "vibe_distribution": {
-            "suburban residential area": 0.45,
-            "urban city center": 0.25,
-        },
-        "evidence": {
-            "top_contents": ["road_sign", "architecture"],
-            "detected_text": "Rue de la Paix",
-        }
-    }
-    
-    # Generate explanation
+    # Test simple generation
     print("\n" + "="*60)
-    print("Generating GeoGuesser explanation with Gemini...")
+    print("Testing Gemini 3 Pro...")
     print("="*60)
-    explanation = client.generate_explanation(vision_data, max_tokens=10000)
-    print(explanation)
+    response = client.generate("What is 2+2? Answer briefly.")
+    print(f"Response: {response}")

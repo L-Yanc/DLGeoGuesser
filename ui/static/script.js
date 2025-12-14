@@ -74,6 +74,9 @@ function checkPipelineStatus() {
 }
 
 function checkChatModelsStatus() {
+    // Enable chat immediately - it works even without image context
+    enableChat();
+    
     fetch('/api/chat/status')
         .then(response => response.json())
         .then(data => {
@@ -426,13 +429,18 @@ let sessionId = 'session_' + Date.now(); // Unique session ID
 function enableChat() {
     chatInput.disabled = false;
     chatSendBtn.disabled = false;
-    chatInput.placeholder = "Ask about the location...";
+    // Update placeholder based on whether we have results
+    if (currentResults) {
+        chatInput.placeholder = "Ask about the location...";
+    } else {
+        chatInput.placeholder = "Chat with AI (no image context)...";
+    }
 }
 
 function disableChat() {
     chatInput.disabled = true;
     chatSendBtn.disabled = true;
-    chatInput.placeholder = "Analyze an image first...";
+    chatInput.placeholder = "Loading...";
 }
 
 function addChatMessage(text, isUser = false, model = null) {
@@ -487,17 +495,23 @@ async function sendChatMessage() {
     chatMessages.scrollTop = chatMessages.scrollHeight;
     
     try {
+        // Only send context if we have analyzed an image
+        const requestBody = {
+            message: message,
+            model: selectedModel,
+            session_id: sessionId,
+            temperature: 0.8
+        };
+        
+        // Add context only if available
+        if (currentResults) {
+            requestBody.context = currentResults;
+        }
+        
         const response = await fetch('/api/chat/generate', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                message: message,
-                model: selectedModel,
-                session_id: sessionId,
-                context: currentResults,  // Send full analysis results as context
-                max_tokens: 150,
-                temperature: 0.8
-            })
+            body: JSON.stringify(requestBody)
         });
         
         const data = await response.json();

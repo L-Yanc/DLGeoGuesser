@@ -50,8 +50,8 @@ VLA_SERVER_URL = os.environ.get("VLA_SERVER_URL", "http://localhost:8000")
 
 # Gemini clients (SOTA)
 gemini_clients = {
-    'gemini_3_pro': None,      # Gemini 3 Pro
-    'gemini_2.5_flash': None,  # Gemini 2.5 Flash
+    'gemini_3_pro': None,      # Gemini 3 Pro (most capable, reasoning)
+    'gemini_2.5_flash': None,  # Gemini 1.5 Flash (fast, efficient)
 }
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
@@ -180,7 +180,7 @@ def initialize_gemini_client(model_type='gemini_2_flash'):
     # Map model types to Gemini model names
     model_map = {
         'gemini_3_pro': 'gemini-3-pro-preview',
-        'gemini_2.5_flash': 'gemini-2.5-flash',
+        'gemini_2.5_flash': 'gemini-1.5-flash',  # Fast, efficient model
     }
     
     model_name = model_map.get(model_type, 'gemini-3-pro-preview')
@@ -271,8 +271,8 @@ def generate_initial_analysis(result, model_type='self_trained_sft'):
             
             response = client.generate_explanation(
                 vision_data=vision_data,
-                max_tokens=2048,
-                temperature=0.7
+                max_tokens=None,  # No limit - let Gemini decide
+                temperature=1.0   # Default for Gemini 3
             )
             
             print(f"✅ Gemini analysis: {response[:100]}...")
@@ -413,8 +413,8 @@ def chat_generate():
         user_message = data.get('message', '')
         model_type = data.get('model', 'self_trained_sft')
         session_id = data.get('session_id', 'default')
-        context = data.get('context', {})  # Analysis results context
-        max_tokens = data.get('max_tokens', 2048)
+        context = data.get('context', None)  # Analysis results context (optional)
+        max_tokens = data.get('max_tokens', 300)  # Default 300 tokens
         temperature = data.get('temperature', 0.8)
         
         if not user_message:

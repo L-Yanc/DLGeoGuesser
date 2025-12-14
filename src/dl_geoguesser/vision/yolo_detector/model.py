@@ -95,6 +95,12 @@ class YOLOv8Detector:
 
         # Results is a list, but we process one image at a time for this method
         result = results[0]
+        
+        # Debug: Print image info
+        orig_shape = result.orig_shape  # (height, width)
+        print(f"\n=== YOLO Detection Results ===")
+        print(f"  Original image shape: {orig_shape} (H x W)")
+        print(f"  Number of detections: {len(result.boxes)}")
 
         # Use a defaultdict to easily append to lists
         from collections import defaultdict
@@ -103,7 +109,7 @@ class YOLOv8Detector:
         # Get class names from the model
         class_names = result.names
 
-        for box in result.boxes:
+        for i, box in enumerate(result.boxes):
             # Get class name
             class_id = int(box.cls[0])
             class_name = class_names[class_id]
@@ -117,12 +123,17 @@ class YOLOv8Detector:
 
             # Calculate scale (area of the bounding box)
             scale = (x2 - x1) * (y2 - y1)
+            
+            # Debug: Print each detection
+            print(f"  [{i}] {class_name}: bbox=[{x1}, {y1}, {x2}, {y2}], size={x2-x1}x{y2-y1}, conf={confidence:.3f}")
 
             output[class_name].append({
                 "confidence": confidence,
                 "bbox_crop": bbox_crop,
                 "scale": scale
             })
+        
+        print(f"=== End YOLO Results ===\n")
 
         return dict(output)
 

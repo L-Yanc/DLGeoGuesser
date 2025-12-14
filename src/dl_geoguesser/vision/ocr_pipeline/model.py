@@ -83,7 +83,7 @@ class MultiLangOCR:
 
         for lang in other_lang_list:
             try:
-                self.readers[lang] = easyocr.Reader([lang])
+                self.readers[lang] = easyocr.Reader([lang], gpu=False)
             except Exception as e:
                 print(f"Warning: Failed to initialize easyocr reader for: {lang}. Error: {e}")
 
