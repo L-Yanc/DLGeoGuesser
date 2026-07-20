@@ -1,113 +1,111 @@
-# 🌍 GeoGuesser Game Show UI
+# GeoGuesser Game Show UI
 
-An interactive web interface for the DLGeoGuesser AI system that analyzes images to predict locations using computer vision and language models.
+An interactive web interface for the DLGeoGuesser AI system that analyses images to predict locations using computer vision and language models.
 
 ## Features
 
-### 🎯 Image Analysis Pipeline
-- **CLIP (ClipVibe)**: Scene classification (urban, rural, historic, etc.)
-- **YOLO**: Object detection (traffic signs, buildings, vehicles)
-- **DINO**: Country prediction from detected regions
-- **OCR**: Text extraction from signs and billboards
+### Image analysis pipeline
+- **CLIP (ClipVibe)**: scene classification (urban, rural, historic, and so on)
+- **YOLO**: object detection (traffic signs, buildings, vehicles)
+- **DINO**: country prediction from detected regions
+- **OCR**: text extraction from signs and billboards
 
-### 🤖 AI Analysis
+### AI analysis
 - Automatic LLM analysis after image processing
 - Three model options:
-  - **Base**: Pre-trained model
-  - **Mid**: Mid-training checkpoint
-  - **SFT**: Fine-tuned for chat (recommended)
-- Provides top 2 location guesses with explanations
+  - **Base**: pre-trained model
+  - **Mid**: mid-training checkpoint
+  - **SFT**: fine-tuned for chat (recommended)
+- Provides the top two location guesses with explanations
 
-### 💬 Interactive Chat
-- Ask follow-up questions about the analyzed image
-- Conversation history maintained
-- Context-aware responses using analysis results
+### Interactive chat
+- Ask follow-up questions about the analysed image
+- Conversation history is maintained
+- Context-aware responses using the analysis results
 
-### 🎨 Visualizations
-- Combined grid view: Original | Detections | Heatmap
+### Visualisations
+- Combined grid view: original, detections, heatmap
 - CLIP attention heatmaps showing focus areas
 - YOLO bounding boxes on detected objects
 
-## Quick Start
+## Quick start
 
-### 1. Install Dependencies
+### 1. Install dependencies
 ```bash
-conda activate rlenv
 pip install -e .
 ```
 
-### 2. Start the Server
+### 2. Start the server
 ```bash
 cd ui
 python app.py
 ```
 
-### 3. Open Browser
-Navigate to: `http://localhost:5001`
+### 3. Open the browser
+Navigate to `http://localhost:5001`.
 
 ## Usage
 
-### Analyze an Image
+### Analyse an image
 
-1. **Select AI Model** - Choose from dropdown (Base, Mid, or SFT)
-2. **Upload Image** - Click "UPLOAD IMAGE" or use camera
-3. **Analyze** - Click "ANALYZE NOW!" button
-4. **View Results**:
-   - 🤖 AI Analysis (LLM's location guesses)
-   - 🖼️ Visualization grid
-   - 🌍 Location predictions
-   - 🎨 Scene type (vibe)
-   - 📝 Extracted text (if any)
-   - 🔍 Detected objects
+1. **Select an AI model** from the dropdown (Base, Mid, or SFT).
+2. **Upload an image** with "UPLOAD IMAGE" or the camera.
+3. **Analyse** by clicking the "ANALYZE NOW!" button.
+4. **View the results**:
+   - AI analysis (the LLM's location guesses)
+   - Visualisation grid
+   - Location predictions
+   - Scene type (vibe)
+   - Extracted text, if any
+   - Detected objects
 
-### Chat with AI
+### Chat with the AI
 
 After analysis completes:
-1. Chat input becomes enabled
-2. Ask questions about the location
-3. AI responds using selected model
-4. Click 🗑️ to clear conversation
+1. The chat input becomes enabled.
+2. Ask questions about the location.
+3. The AI responds using the selected model.
+4. Clear the conversation with the clear button.
 
-## Model Selection
+## Model selection
 
-### Self-Trained Models
+### Self-trained models
 
-**Base (Pre-trained)**
+**Base (pre-trained)**
 - Raw pre-trained model
 - Fast, unbiased predictions
-- May not follow format perfectly
+- May not follow the format perfectly
 
-**Mid (Checkpoint)**
+**Mid (checkpoint)**
 - Mid-training checkpoint
 - Balance of speed and quality
 - Good for testing
 
-**SFT (Fine-tuned)** ⭐ Recommended
-- Fine-tuned for chat/instructions
+**SFT (fine-tuned), recommended**
+- Fine-tuned for chat and instructions
 - Best format adherence
 - Most conversational
-
 
 ## Architecture
 
 ```
-User Upload
-    ↓
-Vision Models (Parallel)
-    ├─ CLIP → Scene Type
-    ├─ YOLO → Objects
-    └─ OCR → Text
-    ↓
-DINO → Country Prediction
-    ↓
-Selected LLM → Analysis
-    ↓
-Display Results + Enable Chat
+User upload
+    |
+Vision models (parallel)
+    |- CLIP -> scene type
+    |- YOLO -> objects
+    |- OCR  -> text
+    |
+DINO -> country prediction
+    |
+Selected LLM -> analysis
+    |
+Display results and enable chat
 ```
 
 ## Configuration
 
-### Model Paths
+### Model paths
 Edit `ui/app.py`:
 ```python
 DEFAULT_WEIGHTS = {
@@ -117,15 +115,15 @@ DEFAULT_WEIGHTS = {
 }
 ```
 
-### Generation Parameters
+### Generation parameters
 In `generate_initial_analysis()`:
 ```python
 max_tokens=100,      # Response length
 temperature=0.6,     # Creativity (0.0-1.0)
-top_k=40,           # Sampling diversity
+top_k=40,            # Sampling diversity
 ```
 
-### Enable/Disable OCR
+### Enable or disable OCR
 ```python
 enable_ocr=True,  # Set to False to skip text extraction
 ```
@@ -137,68 +135,66 @@ enable_ocr=True,  # Set to False to skip text extraction
 - LLM analysis: 1-2 seconds
 - Total: 6-12 seconds
 
-### Memory Usage
-- Vision models: ~2GB RAM
-- LLM model: ~500MB RAM
-- Total: ~2.5GB RAM
+### Memory usage
+- Vision models: around 2GB RAM
+- LLM model: around 500MB RAM
+- Total: around 2.5GB RAM
 
-### Optimization Tips
-- Use GPU for faster processing
+### Optimisation tips
+- Use a GPU for faster processing
 - Reduce `max_tokens` for quicker LLM responses
-- Disable OCR if text extraction not needed
+- Disable OCR if text extraction is not needed
 
 ## Troubleshooting
 
-### Server Won't Start
+### Server will not start
 ```bash
 # Check port 5001 is available
 lsof -i :5001
 
-# Kill existing process
+# Kill the existing process
 kill -9 <PID>
 ```
 
-### Models Not Loading
+### Models not loading
 ```bash
 # Verify model files exist
 ls -la runs/*/best.pt
 ls -la models/d12_base_1k/*/
 
-# Check tokenizer symlink
+# Check the tokenizer symlink
 ls -la models/d12_base_1k/base_checkpoints/tokenizer
 ```
 
-### Slow Performance
-- Use GPU: Change `device="cpu"` to `device="cuda"` or `device="mps"`
-- Disable OCR: Set `enable_ocr=False`
-- Reduce image size before upload
+### Slow performance
+- Use a GPU: change `device="cpu"` to `device="cuda"` or `device="mps"`
+- Disable OCR: set `enable_ocr=False`
+- Reduce the image size before upload
 
-### Chat Not Working
-- Ensure image analyzed first
-- Check server console for model loading errors
-- Verify selected model loaded successfully
+### Chat not working
+- Ensure the image is analysed first
+- Check the server console for model loading errors
+- Verify the selected model loaded successfully
 
-## File Structure
+## File structure
 
 ```
 ui/
 ├── app.py                 # Flask backend
 ├── templates/
-│   └── index.html        # Main UI
+│   └── index.html         # Main UI
 ├── static/
-│   ├── style.css         # Styling
-│   ├── script.js         # Frontend logic
-│   └── results/          # Generated visualizations
-├── README.md             # This file
-├── FEATURES.md           # Detailed features
-├── STRUCTURE.md          # Code structure
-└── CHAT_INTEGRATION.md   # Chat system docs
+│   ├── style.css          # Styling
+│   ├── script.js          # Frontend logic
+│   └── results/           # Generated visualisations
+├── run_game_show.sh       # Startup helper
+└── README.md              # This file
 ```
 
-## API Endpoints
+## API endpoints
 
 ### POST /api/analyze
-Analyze an uploaded image.
+Analyse an uploaded image.
 
 **Request:**
 ```json
@@ -213,10 +209,10 @@ Analyze an uploaded image.
 ```json
 {
   "success": true,
-  "vibe": {...},
-  "country": {...},
-  "detections": {...},
-  "ocr": {...},
+  "vibe": {},
+  "country": {},
+  "detections": {},
+  "ocr": {},
   "llm_analysis": {
     "analysis": "1st: Slovenia - ...\n2nd: Slovakia - ...",
     "model": "self_trained_sft"
@@ -226,7 +222,7 @@ Analyze an uploaded image.
 ```
 
 ### POST /api/chat/generate
-Generate chat response.
+Generate a chat response.
 
 **Request:**
 ```json
@@ -234,7 +230,7 @@ Generate chat response.
   "message": "Tell me more about the architecture",
   "model": "self_trained_sft",
   "session_id": "session_123",
-  "context": {...}
+  "context": {}
 }
 ```
 
@@ -248,29 +244,29 @@ Generate chat response.
 ```
 
 ### POST /api/chat/clear
-Clear conversation history.
+Clear the conversation history.
 
 ### GET /api/status
-Check if pipeline is ready.
+Check if the pipeline is ready.
 
 ### GET /api/chat/status
-Check if chat models are loaded.
+Check if the chat models are loaded.
 
 ## Development
 
-### Adding New Models
-1. Add checkpoint path to `initialize_chat_models()`
-2. Add option to dropdown in `index.html`
-3. Update model name formatting in `script.js`
+### Adding new models
+1. Add the checkpoint path to `initialize_chat_models()`.
+2. Add the option to the dropdown in `index.html`.
+3. Update the model name formatting in `script.js`.
 
-### Modifying Prompt
+### Modifying the prompt
 Edit `generate_initial_analysis()` in `app.py`:
 ```python
 prompt = f"""Your custom prompt here..."""
 ```
 
-### Styling Changes
-Edit `static/style.css` - uses modern GeoGuessr-inspired design:
+### Styling changes
+Edit `static/style.css`, which uses a modern GeoGuessr-inspired design:
 - Vibrant blue (#4A90E2)
 - Bright coral (#FF6B6B)
 - Sunshine yellow (#FFD93D)
@@ -279,10 +275,10 @@ Edit `static/style.css` - uses modern GeoGuessr-inspired design:
 
 ## Credits
 
-- **Vision Models**: CLIP, YOLO, DINO
-- **Language Models**: NanoChat (self-trained)
-- **UI Design**: Modern GeoGuessr aesthetic
-- **Framework**: Flask + Vanilla JS
+- **Vision models**: CLIP, YOLO, DINO
+- **Language models**: NanoChat (self-trained)
+- **UI design**: modern GeoGuessr aesthetic
+- **Framework**: Flask and vanilla JS
 
 ## License
 
